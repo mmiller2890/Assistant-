@@ -36,7 +36,7 @@ export function addCustomAiProvider(
     const providers = getCustomAiProviders();
     const id = `custom-${Date.now()}-${Math.random()
       .toString(36)
-      .substr(2, 9)}`;
+      .slice(2, 11)}`;
     const provider: TYPE_PROVIDER = {
       ...newProvider,
       id,

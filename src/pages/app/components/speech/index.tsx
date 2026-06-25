@@ -26,6 +26,7 @@ import { Warning } from "./Warning";
 import { useSystemAudioType } from "@/hooks";
 import { useApp } from "@/contexts";
 import { cn } from "@/lib/utils";
+import { isMacOS } from "@/lib";
 
 export const SystemAudio = (props: useSystemAudioType) => {
   const {
@@ -122,8 +123,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
     setIsCapturingScreenshot(true);
     try {
       // Check screen recording permission on macOS
-      const platform = navigator.platform.toLowerCase();
-      if (platform.includes("mac")) {
+      if (isMacOS()) {
         const {
           checkScreenRecordingPermission,
           requestScreenRecordingPermission,

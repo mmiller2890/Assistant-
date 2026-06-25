@@ -6,11 +6,11 @@ import {
   saveConversation,
   getConversationById,
   generateConversationTitle,
-  shouldUseLocalAPI,
   MESSAGE_ID_OFFSET,
   generateMessageId,
   generateRequestId,
   getResponseSettings,
+  isMacOS,
 } from "@/lib";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -174,9 +174,8 @@ export const useChatCompletion = (
           });
         }
 
-        const useLocalAPI = await shouldUseLocalAPI();
         // Check if AI provider is configured
-        if (!selectedAIProvider.provider && !useLocalAPI) {
+        if (!selectedAIProvider.provider) {
           setState((prev) => ({
             ...prev,
             error: "Please select an AI provider in settings",
@@ -187,7 +186,7 @@ export const useChatCompletion = (
         const provider = allAiProviders.find(
           (p) => p.id === selectedAIProvider.provider
         );
-        if (!provider && !useLocalAPI) {
+        if (!provider) {
           setState((prev) => ({
             ...prev,
             error: "Invalid provider selected",
@@ -225,9 +224,16 @@ export const useChatCompletion = (
         let fullResponse = "";
 
         try {
+          const assistantMsg: ChatMessage = {
+            id: generateMessageId("assistant", timestamp + MESSAGE_ID_OFFSET),
+            role: "assistant",
+            content: "",
+            timestamp: timestamp + MESSAGE_ID_OFFSET,
+          };
+
           // Use the fetchAIResponse function with signal
           for await (const chunk of fetchAIResponse({
-            provider: useLocalAPI ? undefined : provider,
+            provider,
             selectedProvider: selectedAIProvider,
             systemPrompt: systemPrompt || undefined,
             history: messageHistory,
@@ -246,36 +252,27 @@ export const useChatCompletion = (
             }
 
             fullResponse += chunk;
+            assistantMsg.content = fullResponse;
 
-            // Update the last message (assistant's response) in real-time
-            const assistantMsg: ChatMessage = {
-              id: generateMessageId("assistant", timestamp + MESSAGE_ID_OFFSET),
-              role: "assistant",
-              content: fullResponse,
-              timestamp: timestamp + MESSAGE_ID_OFFSET,
-            };
-
-            const updatedWithResponse = {
-              ...updatedMessages,
-              messages: [...updatedMessages.messages, assistantMsg],
-            };
-
-            // Check if assistant message already exists
-            const lastMessage =
-              updatedWithResponse.messages[
-                updatedWithResponse.messages.length - 1
-              ];
-            if (lastMessage.role === "assistant") {
-              // Update existing assistant message
-              updatedWithResponse.messages[
-                updatedWithResponse.messages.length - 1
-              ] = assistantMsg;
+            // Update the assistant message in real-time. On the first chunk we
+            // append the assistant message; on subsequent chunks we replace the
+            // last (assistant) message to avoid O(n^2) array growth.
+            const baseMsgs = updatedMessages.messages;
+            const last = baseMsgs[baseMsgs.length - 1];
+            if (last && last.role === "assistant") {
+              setMessages({
+                ...updatedMessages,
+                messages: [
+                  ...baseMsgs.slice(0, -1),
+                  { ...assistantMsg },
+                ],
+              });
             } else {
-              // Add new assistant message
-              updatedWithResponse.messages.push(assistantMsg);
+              setMessages({
+                ...updatedMessages,
+                messages: [...baseMsgs, { ...assistantMsg }],
+              });
             }
-
-            setMessages(updatedWithResponse);
 
             // Auto-scroll during streaming
             scrollToBottom();
@@ -545,8 +542,7 @@ export const useChatCompletion = (
 
     try {
       // Check screen recording permission on macOS
-      const platform = navigator.platform.toLowerCase();
-      if (platform.includes("mac") && !hasCheckedPermissionRef.current) {
+      if (isMacOS() && !hasCheckedPermissionRef.current) {
         const {
           checkScreenRecordingPermission,
           requestScreenRecordingPermission,

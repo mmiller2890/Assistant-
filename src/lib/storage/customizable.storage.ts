@@ -1,4 +1,5 @@
 import { STORAGE_KEYS } from "@/config";
+import { safeLocalStorage } from "./helper";
 
 export type CursorType = "invisible" | "default" | "auto";
 
@@ -29,7 +30,7 @@ export const DEFAULT_CUSTOMIZABLE_STATE: CustomizableState = {
  */
 export const getCustomizableState = (): CustomizableState => {
   try {
-    const stored = localStorage.getItem(STORAGE_KEYS.CUSTOMIZABLE);
+    const stored = safeLocalStorage.getItem(STORAGE_KEYS.CUSTOMIZABLE);
     if (!stored) {
       return DEFAULT_CUSTOMIZABLE_STATE;
     }
@@ -54,7 +55,7 @@ export const getCustomizableState = (): CustomizableState => {
  */
 export const setCustomizableState = (state: CustomizableState): void => {
   try {
-    localStorage.setItem(STORAGE_KEYS.CUSTOMIZABLE, JSON.stringify(state));
+    safeLocalStorage.setItem(STORAGE_KEYS.CUSTOMIZABLE, JSON.stringify(state));
   } catch (error) {
     console.error("Failed to save customizable state:", error);
   }

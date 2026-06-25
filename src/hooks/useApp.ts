@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { useTitles, useSystemAudio } from "@/hooks";
 import { listen } from "@tauri-apps/api/event";
-import { safeLocalStorage, migrateLocalStorageToSQLite } from "@/lib";
+import { safeLocalStorage, migrateLocalStorageToSQLite, isWindows } from "@/lib";
 import { getShortcutsConfig } from "@/lib/storage";
 import { invoke } from "@tauri-apps/api/core";
 
-export const useApp = () => {
+export const useAppLifecycle = () => {
   const systemAudio = useSystemAudio();
   const [isHidden, setIsHidden] = useState(false);
   // Initialize title management
@@ -77,8 +77,7 @@ export const useApp = () => {
     const unlistenPromise = listen<boolean>(
       "toggle-window-visibility",
       (event) => {
-        const platform = navigator.platform.toLowerCase();
-        if (typeof event.payload === "boolean" && platform.includes("win")) {
+        if (typeof event.payload === "boolean" && isWindows()) {
           setIsHidden(!event.payload);
           // find popover open and close it
           const popover = document.getElementById("popover-content");

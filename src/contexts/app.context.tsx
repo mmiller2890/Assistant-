@@ -28,6 +28,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -49,8 +50,6 @@ const validateAndProcessCurlProviders = (
         } catch (e) {
           return false;
         }
-
-        return true;
       })
       .map((p) => {
         const provider = { ...p, isCustom: true };
@@ -400,8 +399,16 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
   }, []);
 
-  // Listen to storage events for real-time sync (e.g., multi-tab)
+  // Listen to storage events for real-time sync (e.g., multi-tab).
+  // Debounce loadData to avoid repeated full reloads when multiple keys
+  // change in rapid succession (e.g. screenshot config updates).
+  const loadDataRef = useRef(loadData);
+  loadDataRef.current = loadData;
+
   useEffect(() => {
+    let reloadTimer: ReturnType<typeof setTimeout> | null = null;
+    const RELOAD_DEBOUNCE_MS = 200;
+
     const handleStorageChange = (e: StorageEvent) => {
       // Sync supportsImages across windows
       if (e.key === STORAGE_KEYS.SUPPORTS_IMAGES && e.newValue !== null) {
@@ -418,11 +425,18 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         e.key === STORAGE_KEYS.CUSTOMIZABLE ||
         e.key === STORAGE_KEYS.SELECTED_AUDIO_DEVICES
       ) {
-        loadData();
+        if (reloadTimer) clearTimeout(reloadTimer);
+        reloadTimer = setTimeout(() => {
+          reloadTimer = null;
+          loadDataRef.current();
+        }, RELOAD_DEBOUNCE_MS);
       }
     };
     window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+      if (reloadTimer) clearTimeout(reloadTimer);
+    };
   }, []);
 
   // Check if the current AI provider/model supports images

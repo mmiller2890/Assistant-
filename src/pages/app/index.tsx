@@ -5,8 +5,8 @@ import {
   AudioVisualizer,
   StatusIndicator,
 } from "./components";
-import { useApp } from "@/hooks";
-import { useApp as useAppContext } from "@/contexts";
+import { useAppLifecycle } from "@/hooks";
+import { useApp } from "@/contexts";
 import { SparklesIcon } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { ErrorBoundary } from "react-error-boundary";
@@ -14,8 +14,8 @@ import { ErrorLayout } from "@/layouts";
 import { getPlatform } from "@/lib";
 
 const App = () => {
-  const { isHidden, systemAudio } = useApp();
-  const { customizable } = useAppContext();
+  const { isHidden, systemAudio } = useAppLifecycle();
+  const { customizable } = useApp();
   const platform = getPlatform();
 
   const openDashboard = async () => {

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::{thread, time::Duration};
+use std::time::Duration;
 use tauri::Emitter;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use xcap::Monitor;
@@ -83,7 +83,16 @@ pub async fn start_screen_capture(app: tauri::AppHandle) -> Result<(), String> {
     }
 
     // Store all captured monitors
-    *state.captured_monitors.lock().unwrap() = captured_monitors;
+    {
+        let mut guard = match state.captured_monitors.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                eprintln!("captured_monitors mutex poisoned, recovering");
+                poisoned.into_inner()
+            }
+        };
+        *guard = captured_monitors;
+    }
 
     // Clean up any existing overlay windows before creating new ones
     for (label, window) in app.webview_windows() {
@@ -142,7 +151,7 @@ pub async fn start_screen_capture(app: tauri::AppHandle) -> Result<(), String> {
                 })?;
 
         // Wait a short moment for content to load before showing
-        thread::sleep(Duration::from_millis(100));
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         overlay.show().ok();
         overlay.set_always_on_top(true).ok();
@@ -156,7 +165,7 @@ pub async fn start_screen_capture(app: tauri::AppHandle) -> Result<(), String> {
     }
 
     // Give a moment for all windows to settle, then focus primary again
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     for (idx, monitor) in capture_monitors.iter().enumerate() {
         if monitor.is_primary() {
@@ -185,12 +194,23 @@ pub fn close_overlay_window(app: tauri::AppHandle) -> Result<(), String> {
 
     // Clear captured monitors from state
     let state = app.state::<CaptureState>();
-    state.captured_monitors.lock().unwrap().clear();
+    {
+        let mut guard = match state.captured_monitors.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                eprintln!("captured_monitors mutex poisoned, recovering");
+                poisoned.into_inner()
+            }
+        };
+        guard.clear();
+    }
     state.overlay_active.store(false, Ordering::SeqCst);
 
     // Emit an event to the main window to signal that the overlay has been closed
     if let Some(main_window) = app.get_webview_window("main") {
-        main_window.emit("capture-closed", ()).unwrap();
+        if let Err(e) = main_window.emit("capture-closed", ()) {
+            eprintln!("Failed to emit capture-closed event: {}", e);
+        }
     }
 
     Ok(())
@@ -204,7 +224,13 @@ pub async fn capture_selected_area(
 ) -> Result<String, String> {
     // Get the stored captured monitors
     let state = app.state::<CaptureState>();
-    let mut captured_monitors = state.captured_monitors.lock().unwrap();
+    let mut captured_monitors = match state.captured_monitors.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            eprintln!("captured_monitors mutex poisoned, recovering");
+            poisoned.into_inner()
+        }
+    };
 
     let monitor_info = captured_monitors.remove(&monitor_index).ok_or({
         state.overlay_active.store(false, Ordering::SeqCst);

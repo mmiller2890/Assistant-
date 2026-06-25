@@ -1,7 +1,10 @@
 import { useEffect } from "react";
 
 /**
- * Hook to conditionally render titles based on user preference
+ * Hook to conditionally render titles based on user preference.
+ * Titles are disabled in this fork; this hook strips them once on mount
+ * and re-scans on idle to catch dynamically-added elements without
+ * keeping a permanent whole-document MutationObserver running.
  * @param titleText The title text to render if enabled
  * @returns The title text if enabled, empty string if disabled
  */
@@ -30,56 +33,34 @@ export const useTitles = () => {
     });
   };
 
-  // Handle title visibility globally
+  // Handle title visibility globally. Titles are always disabled here, so we
+  // only do an initial pass and a low-frequency idle re-scan instead of a
+  // permanent whole-document MutationObserver.
   useEffect(() => {
-    // Use setTimeout to ensure DOM is fully loaded
     const timeoutId = setTimeout(disableTitles, 100);
 
-    // Set up mutation observer to handle dynamically added elements
-    const observer = new MutationObserver((mutations) => {
-      let hasTitleChanges = false;
-      mutations.forEach((mutation) => {
-        if (mutation.type === "childList") {
-          mutation.addedNodes.forEach((node) => {
-            if (node.nodeType === Node.ELEMENT_NODE) {
-              const element = node as Element;
-              if (
-                element.hasAttribute("title") ||
-                element.querySelector("[title]")
-              ) {
-                hasTitleChanges = true;
-              }
-            }
-          });
-        }
-        if (
-          mutation.type === "attributes" &&
-          mutation.attributeName === "title"
-        ) {
-          hasTitleChanges = true;
-        }
-      });
+    let idleId: number | null = null;
+    const scheduleIdleScan = () => {
+      if (idleId !== null) return;
+      idleId = window.setTimeout(() => {
+        idleId = null;
+        disableTitles();
+      }, 1000);
+    };
 
-      if (hasTitleChanges) {
-        // Remove titles from any new or updated elements
-        setTimeout(() => {
-          const elementsWithTitles = document.querySelectorAll("[title]");
-          elementsWithTitles.forEach((element) => {
-            removeTitleFromElement(element);
-          });
-        }, 0);
-      }
+    // Re-scan when the DOM changes, debounced via idle scheduling.
+    const observer = new MutationObserver(() => {
+      scheduleIdleScan();
     });
 
     observer.observe(document.body, {
       childList: true,
       subtree: true,
-      attributes: true,
-      attributeFilter: ["title"],
     });
 
     return () => {
       clearTimeout(timeoutId);
+      if (idleId !== null) clearTimeout(idleId);
       observer.disconnect();
     };
   }, []);

@@ -12,6 +12,7 @@ import {
 } from "@/components";
 import { UseCompletionReturn } from "@/types";
 import { MessageHistory } from "./MessageHistory";
+import { isMacOS } from "@/lib";
 
 export const Input = ({
   isPopoverOpen,
@@ -108,9 +109,7 @@ export const Input = ({
                   keepEngaged ? "AI response" : "conversation mode"
                 }`}</p>
                 <span className="text-[10px] text-muted-foreground/60 bg-muted/30 px-1 py-0 rounded border border-input/50">
-                  {navigator.platform.toLowerCase().includes("mac")
-                    ? "⌘"
-                    : "Ctrl"}{" "}
+                  {isMacOS() ? "⌘" : "Ctrl"}{" "}
                   + K
                 </span>
                 <Switch

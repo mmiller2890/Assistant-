@@ -11,12 +11,13 @@ import {
 } from "@/config";
 import {
   safeLocalStorage,
-  shouldUseLocalAPI,
   generateConversationTitle,
   saveConversation,
   CONVERSATION_SAVE_DEBOUNCE_MS,
   generateConversationId,
   generateMessageId,
+  isMacOS,
+  isWindows,
 } from "@/lib";
 import { Message } from "@/types/completion";
 
@@ -235,8 +236,7 @@ export function useSystemAudio() {
             }
             const audioBlob = new Blob([bytes], { type: "audio/wav" });
 
-            const useLocalAPI = await shouldUseLocalAPI();
-            if (!selectedSttProvider.provider && !useLocalAPI) {
+            if (!selectedSttProvider.provider) {
               setError("No speech provider selected.");
               return;
             }
@@ -245,32 +245,27 @@ export function useSystemAudio() {
               (p) => p.id === selectedSttProvider.provider
             );
 
-            if (!providerConfig && !useLocalAPI) {
+            if (!providerConfig) {
               setError("Speech provider config not found.");
               return;
             }
 
             setIsProcessing(true);
 
-            // Add timeout wrapper for STT request (30 seconds)
-            const sttPromise = fetchSTT({
-              provider: providerConfig,
-              selectedProvider: selectedSttProvider,
-              audio: audioBlob,
-            });
-
-            const timeoutPromise = new Promise<string>((_, reject) => {
-              setTimeout(
-                () => reject(new Error("Speech transcription timed out (30s)")),
-                30000
-              );
-            });
+            // Add timeout wrapper for STT request (30 seconds) with abort
+            // so the underlying request is actually cancelled on timeout.
+            const sttAbortController = new AbortController();
+            const timeoutId = setTimeout(() => {
+              sttAbortController.abort();
+            }, 30000);
 
             try {
-              const transcription = await Promise.race([
-                sttPromise,
-                timeoutPromise,
-              ]);
+              const transcription = await fetchSTT({
+                provider: providerConfig,
+                selectedProvider: selectedSttProvider,
+                audio: audioBlob,
+                signal: sttAbortController.signal,
+              });
 
               if (transcription.trim()) {
                 setLastTranscription(transcription);
@@ -294,8 +289,14 @@ export function useSystemAudio() {
               }
             } catch (sttError: any) {
               console.error("STT Error:", sttError);
-              setError(sttError.message || "Failed to transcribe audio");
+              if (sttAbortController.signal.aborted) {
+                setError("Speech transcription timed out (30s)");
+              } else {
+                setError(sttError.message || "Failed to transcribe audio");
+              }
               setIsPopoverOpen(true);
+            } finally {
+              clearTimeout(timeoutId);
             }
           } catch (err) {
             setError("Failed to process speech");
@@ -487,8 +488,7 @@ export function useSystemAudio() {
 
         let fullResponse = "";
 
-        const useLocalAPI = await shouldUseLocalAPI();
-        if (!selectedAIProvider.provider && !useLocalAPI) {
+        if (!selectedAIProvider.provider) {
           setError("No AI provider selected.");
           return;
         }
@@ -496,14 +496,14 @@ export function useSystemAudio() {
         const provider = allAiProviders.find(
           (p) => p.id === selectedAIProvider.provider
         );
-        if (!provider && !useLocalAPI) {
+        if (!provider) {
           setError("AI provider config not found.");
           return;
         }
 
         try {
           for await (const chunk of fetchAIResponse({
-            provider: useLocalAPI ? undefined : provider,
+            provider,
             selectedProvider: selectedAIProvider,
             systemPrompt: prompt,
             history: previousMessages,
@@ -657,9 +657,7 @@ export function useSystemAudio() {
 
   const handleSetup = useCallback(async () => {
     try {
-      const platform = navigator.platform.toLowerCase();
-
-      if (platform.includes("mac") || platform.includes("win")) {
+      if (isMacOS() || isWindows()) {
         await invoke("request_system_audio_access");
       }
 

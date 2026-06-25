@@ -3,6 +3,7 @@ import {
   getAllConversations,
   deleteConversation,
   DOWNLOAD_SUCCESS_DISPLAY_MS,
+  safeLocalStorage,
 } from "@/lib";
 import { ChatConversation } from "@/types/completion";
 
@@ -156,7 +157,7 @@ export function useHistory(): UseHistoryReturn {
 
   const handleAttachToOverlay = (conversationId: string) => {
     // Use localStorage to communicate between windows
-    localStorage.setItem(
+    safeLocalStorage.setItem(
       "assistant-conversation-selected",
       JSON.stringify({ id: conversationId, timestamp: Date.now() })
     );

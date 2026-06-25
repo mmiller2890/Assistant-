@@ -4,37 +4,9 @@ import {
   blobToBase64,
 } from "./common.function";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { invoke } from "@tauri-apps/api/core";
 
 import { TYPE_PROVIDER } from "@/types";
 import curl2Json from "@bany/curl-to-json";
-import { shouldUseLocalAPI } from "./local.api";
-
-// Local STT function
-async function fetchLocalSTT(audio: File | Blob): Promise<string> {
-  try {
-    // Convert audio to base64
-    const audioBase64 = await blobToBase64(audio);
-
-    // Call Tauri command
-    const response = await invoke<{
-      success: boolean;
-      transcription?: string;
-      error?: string;
-    }>("transcribe_audio", {
-      audioBase64,
-    });
-
-    if (response.success && response.transcription) {
-      return response.transcription;
-    } else {
-      return response.error || "Transcription failed";
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    return `STT Error: ${errorMessage}`;
-  }
-}
 
 export interface STTParams {
   provider: TYPE_PROVIDER | undefined;
@@ -43,6 +15,7 @@ export interface STTParams {
     variables: Record<string, string>;
   };
   audio: File | Blob;
+  signal?: AbortSignal;
 }
 
 /**
@@ -52,13 +25,7 @@ export async function fetchSTT(params: STTParams): Promise<string> {
   let warnings: string[] = [];
 
   try {
-    const { provider, selectedProvider, audio } = params;
-
-    // Check if we should use local API instead
-    const useLocalAPI = await shouldUseLocalAPI();
-    if (useLocalAPI) {
-      return await fetchLocalSTT(audio);
-    }
+    const { provider, selectedProvider, audio, signal } = params;
 
     if (!provider) throw new Error("Provider not provided");
     if (!selectedProvider) throw new Error("Selected provider not provided");
@@ -194,8 +161,15 @@ export async function fetchSTT(params: STTParams): Promise<string> {
         method: curlJson.method || "POST",
         headers: finalHeaders,
         body: curlJson.method === "GET" ? undefined : body,
+        signal,
       });
     } catch (e) {
+      if (
+        signal?.aborted ||
+        (e instanceof Error && e.name === "AbortError")
+      ) {
+        throw new Error("Transcription cancelled");
+      }
       throw new Error(`Network error: ${e instanceof Error ? e.message : e}`);
     }
 

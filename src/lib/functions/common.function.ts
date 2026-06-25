@@ -62,7 +62,7 @@ export function extractVariables(
   );
 
   return filteredVariables.map((variable) => ({
-    key: variable?.toLowerCase()?.replace(/_/g, "_") || "",
+    key: variable?.toLowerCase() || "",
     value: variable,
   }));
 }

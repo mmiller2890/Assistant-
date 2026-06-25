@@ -8,6 +8,7 @@ import {
   CameraIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isMacOS } from "@/lib";
 
 interface WarningProps {
   isVadMode: boolean;
@@ -16,8 +17,7 @@ interface WarningProps {
 export const Warning = ({ isVadMode }: WarningProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const isMac = navigator.platform.toLowerCase().includes("mac");
-  const modKey = isMac ? "⌘" : "Ctrl";
+  const modKey = isMacOS() ? "⌘" : "Ctrl";
 
   return (
     <div className="rounded-lg border border-border/50 bg-muted/30 overflow-hidden">

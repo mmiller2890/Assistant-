@@ -8,12 +8,12 @@ import {
   saveConversation,
   getConversationById,
   generateConversationTitle,
-  shouldUseLocalAPI,
   MESSAGE_ID_OFFSET,
   generateConversationId,
   generateMessageId,
   generateRequestId,
   getResponseSettings,
+  isMacOS,
 } from "@/lib";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -179,9 +179,8 @@ export const useCompletion = () => {
 
         let fullResponse = "";
 
-        const useLocalAPI = await shouldUseLocalAPI();
         // Check if AI provider is configured
-        if (!selectedAIProvider.provider && !useLocalAPI) {
+        if (!selectedAIProvider.provider) {
           setState((prev) => ({
             ...prev,
             error: "Please select an AI provider in settings",
@@ -192,7 +191,7 @@ export const useCompletion = () => {
         const provider = allAiProviders.find(
           (p) => p.id === selectedAIProvider.provider
         );
-        if (!provider && !useLocalAPI) {
+        if (!provider) {
           setState((prev) => ({
             ...prev,
             error: "Invalid provider selected",
@@ -211,7 +210,7 @@ export const useCompletion = () => {
         try {
           // Use the fetchAIResponse function with signal
           for await (const chunk of fetchAIResponse({
-            provider: useLocalAPI ? undefined : provider,
+            provider,
             selectedProvider: selectedAIProvider,
             systemPrompt: systemPrompt || undefined,
             history: messageHistory,
@@ -440,10 +439,8 @@ export const useCompletion = () => {
   // Listen for conversation events from the main ChatHistory component
   useEffect(() => {
     const handleConversationSelected = async (event: any) => {
-      console.log(event, "event");
       // Only the conversation ID is passed through the event
       const { id } = event.detail;
-      console.log(id, "id");
       if (!id || typeof id !== "string") {
         console.error("No conversation ID provided");
         setState((prev) => ({
@@ -582,9 +579,8 @@ export const useCompletion = () => {
 
             let fullResponse = "";
 
-            const useLocalAPI = await shouldUseLocalAPI();
             // Check if AI provider is configured
-            if (!selectedAIProvider.provider && !useLocalAPI) {
+            if (!selectedAIProvider.provider) {
               setState((prev) => ({
                 ...prev,
                 error: "Please select an AI provider in settings",
@@ -595,7 +591,7 @@ export const useCompletion = () => {
             const provider = allAiProviders.find(
               (p) => p.id === selectedAIProvider.provider
             );
-            if (!provider && !useLocalAPI) {
+            if (!provider) {
               setState((prev) => ({
                 ...prev,
                 error: "Invalid provider selected",
@@ -614,7 +610,7 @@ export const useCompletion = () => {
 
             // Use the fetchAIResponse function with image and signal
             for await (const chunk of fetchAIResponse({
-              provider: useLocalAPI ? undefined : provider,
+              provider,
               selectedProvider: selectedAIProvider,
               systemPrompt: systemPrompt || undefined,
               history: messageHistory,
@@ -802,8 +798,7 @@ export const useCompletion = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isPopoverOpen) return;
 
-      const activeScrollRef = scrollAreaRef.current || scrollAreaRef.current;
-      const scrollElement = activeScrollRef?.querySelector(
+      const scrollElement = scrollAreaRef.current?.querySelector(
         "[data-radix-scroll-area-viewport]"
       ) as HTMLElement;
 
@@ -854,8 +849,7 @@ export const useCompletion = () => {
 
     try {
       // Check screen recording permission on macOS
-      const platform = navigator.platform.toLowerCase();
-      if (platform.includes("mac") && !hasCheckedPermissionRef.current) {
+      if (isMacOS() && !hasCheckedPermissionRef.current) {
         const {
           checkScreenRecordingPermission,
           requestScreenRecordingPermission,

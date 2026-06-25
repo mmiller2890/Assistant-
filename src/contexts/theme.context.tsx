@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { STORAGE_KEYS } from "@/config/";
+import { safeLocalStorage } from "@/lib";
 
 type Theme = "dark" | "light" | "system";
 
@@ -32,10 +33,10 @@ export function ThemeProvider({
   ...props
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
+    () => (safeLocalStorage.getItem(storageKey) as Theme) || defaultTheme
   );
   const [transparency, setTransparency] = useState<number>(() => {
-    const stored = localStorage.getItem(STORAGE_KEYS.TRANSPARENCY);
+    const stored = safeLocalStorage.getItem(STORAGE_KEYS.TRANSPARENCY);
     return stored ? parseInt(stored, 10) : 10;
   });
 
@@ -106,14 +107,14 @@ export function ThemeProvider({
   }, [transparency]);
 
   const onSetTransparency = (transparency: number) => {
-    localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, transparency.toString());
+    safeLocalStorage.setItem(STORAGE_KEYS.TRANSPARENCY, transparency.toString());
     setTransparency(transparency);
   };
 
   const value = {
     theme,
     setTheme: (newTheme: Theme) => {
-      localStorage.setItem(storageKey, newTheme);
+      safeLocalStorage.setItem(storageKey, newTheme);
       setTheme(newTheme);
     },
     isSystemThemeDark,
