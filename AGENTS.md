@@ -1,14 +1,14 @@
 # AGENTS.md
 
 ## Project Overview
-Assistant is a local-only fork of an open-source Pluely project — a Tauri 2 + React desktop app that provides a stealth AI assistant overlay for meetings, interviews, and conversations. This fork removes all cloud features (hosted API, license activation, auto-updater, telemetry) and defaults to local providers (Ollama for AI, local Whisper/Nemotron for STT).
+Assistant is a local-only fork of an open-source Pluely project — a Tauri 2 + React desktop app that provides a stealth AI assistant overlay for meetings, interviews, and conversations. This fork removes all cloud features (hosted API, license activation, auto-updater, telemetry) and defaults to local providers (Ollama for AI, local Whisper/Parakeet for STT).
 
 ## Tech Stack
 - **Frontend:** React 19, TypeScript 5.8, Tailwind CSS 4, Vite 7
 - **Desktop:** Tauri 2 (Rust backend)
 - **Local AI:** Ollama (`localhost:11434`)
-- **Local STT:** faster-whisper server (`localhost:8000`) or mlx-audio Nemotron (`localhost:8001`)
-- **Language:** TypeScript (frontend), Rust (backend)
+- **Local STT:** faster-whisper server (`localhost:8000`) or mlx-audio ASR (`localhost:8001`, default Parakeet TDT v3; Nemotron also available)
+- **Language:** TypeScript (frontend), Rust (backend), Python (local STT servers)
 
 ## Commands
 
@@ -78,7 +78,7 @@ src-tauri/
 
 ### Local STT Servers
 - `whisper_server.py` — faster-whisper server on port 8000 (venv: `.whisper-venv`)
-- `nemotron_server.py` — mlx-audio Nemotron server on port 8001 (venv: `.nemotron-venv`)
+- `mlx_asr_server.py` — mlx-audio ASR server on port 8001 (venv: `.mlx-asr-venv`); defaults to Parakeet TDT v3, supports Nemotron via `--model`
 - Both expose `POST /v1/audio/transcriptions` (OpenAI-compatible).
 - Tauri capabilities in `src-tauri/capabilities/` whitelist `localhost:8000` and `8001`.
 

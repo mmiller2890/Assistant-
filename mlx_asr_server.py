@@ -1,20 +1,26 @@
 #!/usr/bin/env python3
 """
-Nemotron ASR server — OpenAI-compatible transcription endpoint using
-mlx-community/nemotron-3.5-asr-streaming-0.6b on Apple Silicon.
+MLX ASR server — OpenAI-compatible transcription endpoint for any
+mlx-audio speech recognition model on Apple Silicon.
+
+Defaults to mlx-community/parakeet-tdt-0.6b-v3 for best English accuracy.
+Other tested models:
+  - mlx-community/nemotron-3.5-asr-streaming-0.6b (streaming, 40 languages)
+  - mlx-community/nemotron-3.5-asr-streaming-0.6b-8bit
 
 Usage:
-  python3.12 nemotron_server.py
-  python3.12 nemotron_server.py --port 8001
-  python3.12 nemotron_server.py --model mlx-community/nemotron-3.5-asr-streaming-0.6b-8bit
+  python3.12 mlx_asr_server.py
+  python3.12 mlx_asr_server.py --port 8001
+  python3.12 mlx_asr_server.py --model mlx-community/nemotron-3.5-asr-streaming-0.6b
 
 Endpoint: POST /v1/audio/transcriptions  (file + optional model fields)
           GET  /health
 """
 
 import argparse
-import io
 import sys
+import tempfile
+import os
 
 try:
     from mlx_audio.stt import load
@@ -29,16 +35,13 @@ except ImportError:
     print("Missing dependency. Install with:\n  pip install fastapi uvicorn python-multipart")
     sys.exit(1)
 
-app = FastAPI(title="Nemotron ASR Server")
+app = FastAPI(title="MLX ASR Server")
 model = None
 
 
 @app.post("/v1/audio/transcriptions")
 async def transcribe(file: UploadFile = File(...), model_name: str = Form(default="")):
     audio_bytes = await file.read()
-
-    # Write to temp bytes for mlx-audio
-    import tempfile, os
     suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(audio_bytes)
@@ -59,9 +62,12 @@ async def health():
 
 def main():
     global model
-    parser = argparse.ArgumentParser(description="Nemotron ASR server (MLX)")
-    parser.add_argument("--model", default="mlx-community/nemotron-3.5-asr-streaming-0.6b",
-                        help="Model ID (default: mlx-community/nemotron-3.5-asr-streaming-0.6b)")
+    parser = argparse.ArgumentParser(description="MLX ASR server (Apple Silicon)")
+    parser.add_argument(
+        "--model",
+        default="mlx-community/parakeet-tdt-0.6b-v3",
+        help="MLX ASR model ID (default: mlx-community/parakeet-tdt-0.6b-v3)",
+    )
     parser.add_argument("--port", type=int, default=8001, help="Port (default: 8001)")
     args = parser.parse_args()
 

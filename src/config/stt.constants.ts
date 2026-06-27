@@ -1,5 +1,14 @@
 export const SPEECH_TO_TEXT_PROVIDERS = [
   {
+    id: "local-parakeet",
+    name: "Local Parakeet TDT v3 (MLX, Apple Silicon)",
+    curl: `curl -X POST "http://localhost:8001/v1/audio/transcriptions" \\
+      -F "file={{AUDIO}}" \\
+      -F "model={{MODEL}}"`,
+    responseContentPath: "text",
+    streaming: false,
+  },
+  {
     id: "local-nemotron",
     name: "Local Nemotron ASR (MLX, Apple Silicon)",
     curl: `curl -X POST "http://localhost:8001/v1/audio/transcriptions" \\

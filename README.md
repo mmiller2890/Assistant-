@@ -2,14 +2,14 @@
 
 A lightning-fast, privacy-first AI assistant that works seamlessly during meetings, interviews, and conversations without anyone knowing.
 
-This is a **local-only fork** of the open-source [Pluely](https://github.com/iamsrikanthnani/pluely) project. The hosted cloud API, license activation, auto-updater, and all telemetry have been removed. It runs entirely against your own configured providers — including built-in support for **Ollama** and local **Whisper**/**Nemotron** STT servers.
+This is a **local-only fork** of the open-source [Pluely](https://github.com/iamsrikanthnani/pluely) project. The hosted cloud API, license activation, auto-updater, and all telemetry have been removed. It runs entirely against your own configured providers — including built-in support for **Ollama** and local **Whisper**/**Parakeet**/**Nemotron** STT servers.
 
 ## ✨ Features
 
 - **Stealth Overlay** — translucent, always-available assistant window that's invisible during screen shares and recordings.
 - **Bring Your Own Provider** — any LLM or speech-to-text provider configurable via curl, with full streaming support.
 - **Ollama by Default** — works out of the box against a local Ollama instance; no API keys required. Detects installed models automatically.
-- **Local STT** — run Whisper (faster-whisper) or NVIDIA Nemotron (mlx-audio) locally for fully offline speech-to-text.
+- **Local STT** — run Whisper (faster-whisper) or any mlx-audio ASR model (Parakeet TDT v3, Nemotron, etc.) locally for fully offline speech-to-text.
 - **Audio Capture** — system + microphone audio transcription with VAD.
 - **Screenshot Analysis** — capture and send screenshots to your vision-capable model.
 - **System Prompts** — create, edit, and switch AI behavior profiles.
@@ -21,7 +21,7 @@ This is a **local-only fork** of the open-source [Pluely](https://github.com/iam
 - **Frontend:** React 19 + TypeScript 5.8 + Tailwind CSS 4 + Vite 7
 - **Desktop:** Tauri 2 (Rust backend)
 - **Local AI:** Ollama (`localhost:11434`)
-- **Local STT:** faster-whisper (`localhost:8000`) or mlx-audio Nemotron (`localhost:8001`)
+- **Local STT:** faster-whisper (`localhost:8000`) or mlx-audio ASR (`localhost:8001`, default Parakeet TDT v3)
 
 ## 📦 Prerequisites
 
@@ -42,9 +42,9 @@ This is a **local-only fork** of the open-source [Pluely](https://github.com/iam
   python3.12 -m venv .whisper-venv
   .whisper-venv/bin/pip install faster-whisper fastapi uvicorn python-multipart
 
-  # For Nemotron STT (Apple Silicon only)
-  python3.12 -m venv .nemotron-venv
-  .nemotron-venv/bin/pip install "git+https://github.com/Blaizzy/mlx-audio.git" fastapi uvicorn python-multipart
+  # For mlx-audio STT (Apple Silicon only; supports Parakeet TDT v3 / Nemotron)
+  python3.12 -m venv .mlx-asr-venv
+  .mlx-asr-venv/bin/pip install "git+https://github.com/Blaizzy/mlx-audio.git" fastapi uvicorn python-multipart requests soxr
   ```
 
 ## 🚀 Getting Started
@@ -77,7 +77,7 @@ npm run tauri build
 
 ### Local STT Servers
 
-#### Option A: faster-whisper (recommended, all platforms)
+#### Option A: faster-whisper (all platforms)
 ```bash
 . .whisper-venv/bin/activate
 python3.12 whisper_server.py --model Systran/faster-whisper-large-v3
@@ -86,14 +86,14 @@ Serves at `http://localhost:8000/v1/audio/transcriptions`.
 
 Available models: `Systran/faster-whisper-tiny`, `base`, `small`, `medium`, `large-v2`, `large-v3`.
 
-#### Option B: NVIDIA Nemotron via mlx-audio (Apple Silicon only)
+#### Option B: mlx-audio ASR via Parakeet TDT v3 (Apple Silicon only, default)
 ```bash
-. .nemotron-venv/bin/activate
-python3.12 nemotron_server.py
+. .mlx-asr-venv/bin/activate
+python3.12 mlx_asr_server.py
 ```
 Serves at `http://localhost:8001/v1/audio/transcriptions`.
 
-Model: `mlx-community/nemotron-3.5-asr-streaming-0.6b` (600M, bf16, 35 languages, streaming).
+Model: `mlx-community/parakeet-tdt-0.6b-v3` (600M, optimized for English).
 
 ### Supported AI Providers
 
@@ -101,7 +101,9 @@ Ollama, OpenAI, Claude, Gemini, Grok, Groq, Mistral, Cohere, Perplexity, OpenRou
 
 ### Supported STT Providers
 
-Local Whisper, Local Nemotron, OpenAI Whisper, Groq Whisper, ElevenLabs, Google, Deepgram, Azure, Speechmatics, Rev.ai, IBM Watson — plus any custom provider via curl.
+Local Whisper, Local Parakeet TDT v3 (MLX), Local Nemotron (MLX), OpenAI Whisper, Groq Whisper, ElevenLabs, Google, Deepgram, Azure, Speechmatics, Rev.ai, IBM Watson — plus any custom provider via curl.
+
+> **Tip:** Parakeet TDT v3 is the default local STT and is optimized for English. Nemotron supports 35+ languages with streaming.
 
 ## 🔒 Privacy
 

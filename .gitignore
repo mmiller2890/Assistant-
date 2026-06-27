@@ -12,7 +12,7 @@ dist
 dist-ssr
 *.local
 .whisper-venv
-.nemotron-venv
+.mlx-asr-venv
 
 # Editor directories and files
 .vscode/*

@@ -112,7 +112,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [selectedSttProvider, setSelectedSttProvider] = useState<{
     provider: string;
     variables: Record<string, string>;
-  }>({ provider: "local-whisper", variables: { MODEL: "Systran/faster-whisper-large-v3" } });
+  }>({ provider: "local-parakeet", variables: { MODEL: "mlx-community/parakeet-tdt-0.6b-v3" } });
 
   const [screenshotConfiguration, setScreenshotConfiguration] =
     useState<ScreenshotConfig>({
@@ -230,7 +230,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       try {
         setSelectedSttProvider(JSON.parse(savedSelectedStt));
       } catch {
-        setSelectedSttProvider({ provider: "local-whisper", variables: { MODEL: "Systran/faster-whisper-large-v3" } });
+        setSelectedSttProvider({ provider: "local-parakeet", variables: { MODEL: "mlx-community/parakeet-tdt-0.6b-v3" } });
       }
     }
 

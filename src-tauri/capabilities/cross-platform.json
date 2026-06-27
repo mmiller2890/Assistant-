@@ -19,8 +19,6 @@
     "core:window:allow-start-dragging",
     "sql:default",
     "sql:allow-execute",
-    "posthog:default",
-    "posthog:allow-capture",
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
@@ -36,9 +34,11 @@
         { "url": "http://localhost:8080/inference" },
         { "url": "http://localhost:8080/*" },
         { "url": "http://localhost:11434/*" },
+        { "url": "http://localhost:1234/*" },
         { "url": "http://127.0.0.1:8000/*" },
         { "url": "http://127.0.0.1:8080/*" },
-        { "url": "http://127.0.0.1:11434/*" }
+        { "url": "http://127.0.0.1:11434/*" },
+        { "url": "http://127.0.0.1:1234/*" }
       ]
     }
   ]
