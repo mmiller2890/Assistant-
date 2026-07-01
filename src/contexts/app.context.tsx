@@ -211,24 +211,41 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     setCustomSttProviders(sttList);
 
     // Load selected AI provider (empty until the user picks one on first run)
+    // Migrate variable keys to uppercase (extractVariables now preserves case)
     const savedSelectedAi = safeLocalStorage.getItem(
       STORAGE_KEYS.SELECTED_AI_PROVIDER
     );
     if (savedSelectedAi) {
       try {
-        setSelectedAIProvider(JSON.parse(savedSelectedAi));
+        const parsed = JSON.parse(savedSelectedAi);
+        if (parsed.variables) {
+          const uppercased: Record<string, string> = {};
+          for (const [k, v] of Object.entries(parsed.variables)) {
+            uppercased[k.toUpperCase()] = v as string;
+          }
+          parsed.variables = uppercased;
+        }
+        setSelectedAIProvider(parsed);
       } catch {
         setSelectedAIProvider({ provider: "", variables: {} });
       }
     }
 
-    // Load selected STT provider
+    // Load selected STT provider (same uppercase migration)
     const savedSelectedStt = safeLocalStorage.getItem(
       STORAGE_KEYS.SELECTED_STT_PROVIDER
     );
     if (savedSelectedStt) {
       try {
-        setSelectedSttProvider(JSON.parse(savedSelectedStt));
+        const parsed = JSON.parse(savedSelectedStt);
+        if (parsed.variables) {
+          const uppercased: Record<string, string> = {};
+          for (const [k, v] of Object.entries(parsed.variables)) {
+            uppercased[k.toUpperCase()] = v as string;
+          }
+          parsed.variables = uppercased;
+        }
+        setSelectedSttProvider(parsed);
       } catch {
         setSelectedSttProvider({ provider: "local-parakeet", variables: { MODEL: "mlx-community/parakeet-tdt-0.6b-v3" } });
       }

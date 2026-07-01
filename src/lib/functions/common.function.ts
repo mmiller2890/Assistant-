@@ -62,7 +62,7 @@ export function extractVariables(
   );
 
   return filteredVariables.map((variable) => ({
-    key: variable?.toLowerCase() || "",
+    key: variable || "",
     value: variable,
   }));
 }

@@ -32,6 +32,8 @@ export interface VadConfig {
   pre_speech_chunks: number;
   noise_gate_threshold: number;
   max_recording_duration_secs: number;
+  emit_chunks?: boolean;
+  chunk_interval_ms?: number;
 }
 
 // OPTIMIZED VAD defaults - matches backend exactly for perfect performance
@@ -45,6 +47,8 @@ const DEFAULT_VAD_CONFIG: VadConfig = {
   pre_speech_chunks: 12, // ~0.27s - enough to catch word start
   noise_gate_threshold: 0.003, // Stronger noise filtering
   max_recording_duration_secs: 180, // 3 minutes default
+  emit_chunks: false,
+  chunk_interval_ms: 1000,
 };
 
 // Chat message interface (reusing from useCompletion)
@@ -75,6 +79,8 @@ export function useSystemAudio() {
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [lastTranscription, setLastTranscription] = useState<string>("");
   const [lastAIResponse, setLastAIResponse] = useState<string>("");
+  const [partialTranscription, setPartialTranscription] = useState<string>("");
+  const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [setupRequired, setSetupRequired] = useState<boolean>(false);
   const [quickActions, setQuickActions] = useState<string[]>([]);
@@ -111,6 +117,101 @@ export function useSystemAudio() {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isSavingRef = useRef<boolean>(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const streamingFinalizedRef = useRef<boolean>(false);
+  const capturedSampleRateRef = useRef<number>(16000);
+
+  // Open a WebSocket connection to the streaming STT server.
+  const openStreamingSocket = useCallback(() => {
+    const providerConfig = allSttProviders.find(
+      (p) => p.id === selectedSttProvider.provider
+    );
+    if (!providerConfig?.streaming) return;
+
+    try {
+      const ws = new WebSocket("ws://localhost:8001/v1/audio/stream");
+      ws.binaryType = "arraybuffer";
+
+      ws.onopen = () => {
+        ws.send(
+          JSON.stringify({
+            sample_rate: capturedSampleRateRef.current,
+          })
+        );
+        setIsStreaming(true);
+        streamingFinalizedRef.current = false;
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.error) {
+            console.error("Streaming STT error:", data.error);
+            return;
+          }
+          if (data.is_final) {
+            setLastTranscription(data.text || "");
+            setPartialTranscription("");
+            setIsStreaming(false);
+            streamingFinalizedRef.current = true;
+
+            // Trigger AI processing with the final transcription
+            if (data.text && data.text.trim()) {
+              const effectiveSystemPrompt = useSystemPrompt
+                ? systemPrompt || DEFAULT_SYSTEM_PROMPT
+                : contextContent || DEFAULT_SYSTEM_PROMPT;
+              const previousMessages = conversation.messages.map((msg) => ({
+                role: msg.role,
+                content: msg.content,
+              }));
+              processWithAI(
+                data.text,
+                effectiveSystemPrompt,
+                previousMessages
+              );
+            }
+            // Close the socket after final
+            ws.close();
+          } else if (data.text) {
+            setPartialTranscription(data.text);
+          }
+        } catch (e) {
+          console.error("Failed to parse streaming message:", e);
+        }
+      };
+
+      ws.onerror = (e) => {
+        console.error("WebSocket error:", e);
+        setIsStreaming(false);
+      };
+
+      ws.onclose = () => {
+        wsRef.current = null;
+        setIsStreaming(false);
+      };
+
+      wsRef.current = ws;
+    } catch (err) {
+      console.error("Failed to open streaming WebSocket:", err);
+    }
+  }, [
+    allSttProviders,
+    selectedSttProvider,
+    useSystemPrompt,
+    systemPrompt,
+    contextContent,
+    conversation.messages,
+  ]);
+
+  // Close the streaming WebSocket if open.
+  const closeStreamingSocket = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setIsStreaming(false);
+    setPartialTranscription("");
+  }, []);
 
   // Load context settings and VAD config from localStorage on mount
   useEffect(() => {
@@ -164,9 +265,15 @@ export function useSystemAudio() {
     let stopUnlisten: (() => void) | undefined;
     let errorUnlisten: (() => void) | undefined;
     let discardedUnlisten: (() => void) | undefined;
+    let captureStartedUnlisten: (() => void) | undefined;
 
     const setupContinuousListeners = async () => {
       try {
+        // Capture started — record sample rate for WebSocket handshake
+        captureStartedUnlisten = await listen("capture-started", (event) => {
+          capturedSampleRateRef.current = event.payload as number;
+        });
+
         // Progress updates (every second)
         progressUnlisten = await listen("recording-progress", (event) => {
           const seconds = event.payload as number;
@@ -177,12 +284,15 @@ export function useSystemAudio() {
         startUnlisten = await listen("continuous-recording-start", () => {
           setRecordingProgress(0);
           setIsRecordingInContinuousMode(true);
+          // Open streaming WebSocket for continuous mode
+          openStreamingSocket();
         });
 
         // Recording stopped
         stopUnlisten = await listen("continuous-recording-stopped", () => {
           setRecordingProgress(0);
           setIsRecordingInContinuousMode(false);
+          closeStreamingSocket();
         });
 
         // Audio encoding errors
@@ -214,18 +324,53 @@ export function useSystemAudio() {
       if (stopUnlisten) stopUnlisten();
       if (errorUnlisten) errorUnlisten();
       if (discardedUnlisten) discardedUnlisten();
+      if (captureStartedUnlisten) captureStartedUnlisten();
     };
   }, []);
 
-  // Handle single speech detection event (both VAD and continuous modes)
+  // Handle speech events: speech-start (open WS), speech-chunk (forward audio),
+  // speech-detected (final transcription or batch fallback)
   useEffect(() => {
     let speechUnlisten: (() => void) | undefined;
+    let speechStartUnlisten: (() => void) | undefined;
+    let speechChunkUnlisten: (() => void) | undefined;
 
     const setupEventListener = async () => {
       try {
+        // Speech start: open WebSocket for VAD streaming mode
+        speechStartUnlisten = await listen("speech-start", () => {
+          openStreamingSocket();
+        });
+
+        // Speech chunk: forward incremental audio to the WebSocket
+        speechChunkUnlisten = await listen("speech-chunk", (event) => {
+          const base64Audio = event.payload as string;
+          if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+            return;
+          }
+          // Decode base64 to raw f32 bytes and send as binary
+          const binaryString = atob(base64Audio);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          wsRef.current.send(bytes.buffer);
+        });
+
         speechUnlisten = await listen("speech-detected", async (event) => {
           try {
             if (!capturing) return;
+
+            // Double-trigger guard: if streaming already produced final text,
+            // skip the batch STT flow — just cleanup.
+            if (streamingFinalizedRef.current) {
+              streamingFinalizedRef.current = false;
+              closeStreamingSocket();
+              return;
+            }
+
+            // Close any lingering streaming socket before batch fallback
+            closeStreamingSocket();
 
             const base64Audio = event.payload as string;
             // Convert to blob
@@ -313,12 +458,16 @@ export function useSystemAudio() {
 
     return () => {
       if (speechUnlisten) speechUnlisten();
+      if (speechStartUnlisten) speechStartUnlisten();
+      if (speechChunkUnlisten) speechChunkUnlisten();
     };
   }, [
     capturing,
     selectedSttProvider,
     allSttProviders,
     conversation.messages.length,
+    openStreamingSocket,
+    closeStreamingSocket,
   ]);
 
   // Context management functions
@@ -439,16 +588,26 @@ export function useSystemAudio() {
           ? selectedAudioDevices.output.id
           : null;
 
+      const providerConfig = allSttProviders.find(
+        (p) => p.id === selectedSttProvider.provider
+      );
+
       // Start a new continuous recording session
       await invoke<string>("start_system_audio_capture", {
         vadConfig: vadConfig,
         deviceId: deviceId,
+        streaming: providerConfig?.streaming === true,
       });
     } catch (err) {
       console.error("Failed to start continuous recording:", err);
       setError(`Failed to start recording: ${err}`);
     }
-  }, [vadConfig, selectedAudioDevices.output.id]);
+  }, [
+    vadConfig,
+    selectedAudioDevices.output.id,
+    allSttProviders,
+    selectedSttProvider.provider,
+  ]);
 
   // Ignore current recording (stop without transcription)
   const ignoreContinuousRecording = useCallback(async () => {
@@ -593,17 +752,27 @@ export function useSystemAudio() {
           ? selectedAudioDevices.output.id
           : null;
 
+      const providerConfig = allSttProviders.find(
+        (p) => p.id === selectedSttProvider.provider
+      );
+
       // Start capture with VAD config
       await invoke<string>("start_system_audio_capture", {
         vadConfig: vadConfig,
         deviceId: deviceId,
+        streaming: providerConfig?.streaming === true,
       });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       setError(errorMessage);
       setIsPopoverOpen(true);
     }
-  }, [vadConfig, selectedAudioDevices.output.id]);
+  }, [
+    vadConfig,
+    selectedAudioDevices.output.id,
+    allSttProviders,
+    selectedSttProvider.provider,
+  ]);
 
   const stopCapture = useCallback(async () => {
     try {
@@ -612,6 +781,9 @@ export function useSystemAudio() {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
       }
+
+      // Close streaming WebSocket if open
+      closeStreamingSocket();
 
       // Stop the audio capture
       await invoke<string>("stop_system_audio_capture");
@@ -625,6 +797,8 @@ export function useSystemAudio() {
       setRecordingProgress(0);
       setLastTranscription("");
       setLastAIResponse("");
+      setPartialTranscription("");
+      setIsStreaming(false);
       setError("");
       setIsPopoverOpen(false);
     } catch (err) {
@@ -882,6 +1056,8 @@ export function useSystemAudio() {
     isAIProcessing,
     lastTranscription,
     lastAIResponse,
+    partialTranscription,
+    isStreaming,
     error,
     setupRequired,
     startCapture,

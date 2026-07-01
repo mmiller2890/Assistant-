@@ -26,6 +26,14 @@ pub struct VadConfig {
     pub pre_speech_chunks: usize,
     pub noise_gate_threshold: f32,
     pub max_recording_duration_secs: u64,
+    #[serde(default)]
+    pub emit_chunks: bool,
+    #[serde(default = "default_chunk_interval")]
+    pub chunk_interval_ms: u64,
+}
+
+fn default_chunk_interval() -> u64 {
+    1000
 }
 
 impl Default for VadConfig {
@@ -40,6 +48,8 @@ impl Default for VadConfig {
             pre_speech_chunks: 12,  // ~0.27s - enough to catch word start
             noise_gate_threshold: 0.003, // Stronger noise filtering
             max_recording_duration_secs: 180, // 3 minutes default
+            emit_chunks: false,
+            chunk_interval_ms: 1000,
         }
     }
 }
@@ -49,6 +59,7 @@ pub async fn start_system_audio_capture(
     app: AppHandle,
     vad_config: Option<VadConfig>,
     device_id: Option<String>,
+    streaming: Option<bool>,
 ) -> Result<(), String> {
     let state = app.state::<crate::AudioState>();
 
@@ -65,8 +76,11 @@ pub async fn start_system_audio_capture(
         }
     }
 
-    // Update VAD config if provided
-    if let Some(config) = vad_config {
+    // Update VAD config if provided, auto-enabling chunk emission for streaming
+    if let Some(mut config) = vad_config {
+        if streaming.unwrap_or(false) {
+            config.emit_chunks = true;
+        }
         let mut vad_cfg = state
             .vad_config
             .lock()
@@ -148,6 +162,11 @@ async fn run_vad_capture(
     let mut speech_chunks = 0;
     let max_samples = sr as usize * 30; // 30s safety cap per utterance
 
+    // Streaming chunk emission state
+    let mut last_emitted_len: usize = 0;
+    let mut last_chunk_time: Option<Instant> = None;
+    let chunk_interval = Duration::from_millis(config.chunk_interval_ms);
+
     while let Some(sample) = stream.next().await {
         buffer.push_back(sample);
 
@@ -176,11 +195,35 @@ async fn run_vad_capture(
                     speech_buffer.extend(pre_speech.drain(..));
 
                     let _ = app.emit("speech-start", ());
+                    last_emitted_len = 0;
+                    last_chunk_time = Some(Instant::now());
                 }
 
                 speech_chunks += 1;
                 speech_buffer.extend_from_slice(&mono);
                 silence_chunks = 0; // Reset silence counter on any speech
+
+                // Emit incremental streaming chunks while speaking
+                if config.emit_chunks {
+                    if let Some(t) = last_chunk_time {
+                        if t.elapsed() >= chunk_interval
+                            && speech_buffer.len() > last_emitted_len
+                        {
+                            let new_samples =
+                                &speech_buffer[last_emitted_len..];
+                            let cleaned = apply_noise_gate(
+                                new_samples,
+                                config.noise_gate_threshold,
+                            );
+                            let normalized = normalize_audio_level(&cleaned, 0.1);
+                            if let Ok(b64) = samples_to_raw_f32_b64(&normalized) {
+                                let _ = app.emit("speech-chunk", b64);
+                            }
+                            last_emitted_len = speech_buffer.len();
+                            last_chunk_time = Some(Instant::now());
+                        }
+                    }
+                }
 
                 // Safety cap: force emit if exceeds 30s
                 if speech_buffer.len() > max_samples {
@@ -192,6 +235,7 @@ async fn run_vad_capture(
                     speech_buffer.clear();
                     in_speech = false;
                     speech_chunks = 0;
+                    last_emitted_len = 0;
                 }
             } else {
                 // Silence detected
@@ -236,6 +280,7 @@ async fn run_vad_capture(
                         in_speech = false;
                         silence_chunks = 0;
                         speech_chunks = 0;
+                        last_emitted_len = 0;
                     }
                 } else {
                     // Not in speech yet - maintain rolling pre-speech buffer
@@ -270,6 +315,11 @@ async fn run_continuous_capture(
     let mut audio_buffer = Vec::with_capacity(max_samples);
     let start_time = Instant::now();
     let max_duration = Duration::from_secs(config.max_recording_duration_secs);
+
+    // Streaming chunk emission state
+    let mut last_emitted_len: usize = 0;
+    let mut last_chunk_time = Instant::now();
+    let chunk_interval = Duration::from_millis(config.chunk_interval_ms);
 
     // Atomic flag for manual stop
     let stop_flag = Arc::new(AtomicBool::new(false));
@@ -308,6 +358,21 @@ async fn run_continuous_capture(
                         // Emit progress every second
                         if audio_buffer.len() % (sr as usize) == 0 {
                             let _ = app.emit("recording-progress", elapsed.as_secs());
+                        }
+
+                        // Emit incremental streaming chunks
+                        if config.emit_chunks
+                            && last_chunk_time.elapsed() >= chunk_interval
+                            && audio_buffer.len() > last_emitted_len
+                        {
+                            let new_samples = &audio_buffer[last_emitted_len..];
+                            let cleaned = apply_noise_gate(new_samples, config.noise_gate_threshold);
+                            let normalized = normalize_audio_level(&cleaned, 0.1);
+                            if let Ok(b64) = samples_to_raw_f32_b64(&normalized) {
+                                let _ = app.emit("speech-chunk", b64);
+                            }
+                            last_emitted_len = audio_buffer.len();
+                            last_chunk_time = Instant::now();
                         }
 
                         // Check size limit (safety)
@@ -456,6 +521,20 @@ fn samples_to_wav_b64(sample_rate: u32, mono_f32: &[f32]) -> Result<String, Stri
     writer.finalize().map_err(|e| e.to_string())?;
 
     Ok(B64.encode(cursor.into_inner()))
+}
+
+// Convert samples to raw little-endian f32 bytes, base64-encoded (no WAV header).
+// Used for streaming chunks sent to the WebSocket endpoint.
+fn samples_to_raw_f32_b64(mono_f32: &[f32]) -> Result<String, String> {
+    if mono_f32.is_empty() {
+        return Err("Empty audio buffer".to_string());
+    }
+    let mut bytes = Vec::with_capacity(mono_f32.len() * 4);
+    for &s in mono_f32 {
+        let clamped = s.clamp(-1.0, 1.0);
+        bytes.extend_from_slice(&clamped.to_le_bytes());
+    }
+    Ok(B64.encode(&bytes))
 }
 
 #[tauri::command]

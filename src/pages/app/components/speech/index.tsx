@@ -35,6 +35,8 @@ export const SystemAudio = (props: useSystemAudioType) => {
     isAIProcessing,
     lastTranscription,
     lastAIResponse,
+    partialTranscription,
+    isStreaming,
     error,
     setupRequired,
     startCapture,
@@ -355,6 +357,8 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       conversation={conversation}
                       conversationMode={conversationMode}
                       setConversationMode={setConversationMode}
+                      partialTranscription={partialTranscription}
+                      isStreaming={isStreaming}
                     />
 
                     {/* Settings Panel */}

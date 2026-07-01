@@ -30,7 +30,7 @@ export const Providers = ({
   };
 
   const getApiKeyValue = () => {
-    const apiKeyVar = findKeyAndValue("api_key");
+    const apiKeyVar = findKeyAndValue("API_KEY");
     if (!apiKeyVar || !selectedSttProvider?.variables) return "";
     return selectedSttProvider?.variables?.[apiKeyVar.key] || "";
   };
@@ -75,7 +75,7 @@ export const Providers = ({
           description={`If you want to use different url or method, you can always create a custom provider.`}
         />
       ) : null}
-      {findKeyAndValue("api_key") ? (
+      {findKeyAndValue("API_KEY") ? (
         <div className="space-y-2">
           <Header
             title="API Key"
@@ -95,7 +95,7 @@ export const Providers = ({
                 placeholder="**********"
                 value={getApiKeyValue()}
                 onChange={(value) => {
-                  const apiKeyVar = findKeyAndValue("api_key");
+                  const apiKeyVar = findKeyAndValue("API_KEY");
                   if (!apiKeyVar || !selectedSttProvider) return;
 
                   onSetSelectedSttProvider({
@@ -108,7 +108,7 @@ export const Providers = ({
                   });
                 }}
                 onKeyDown={(e) => {
-                  const apiKeyVar = findKeyAndValue("api_key");
+                  const apiKeyVar = findKeyAndValue("API_KEY");
                   if (!apiKeyVar || !selectedSttProvider) return;
 
                   onSetSelectedSttProvider({
@@ -125,7 +125,7 @@ export const Providers = ({
               {isApiKeyEmpty() ? (
                 <Button
                   onClick={() => {
-                    const apiKeyVar = findKeyAndValue("api_key");
+                    const apiKeyVar = findKeyAndValue("API_KEY");
                     if (!apiKeyVar || !selectedSttProvider || isApiKeyEmpty())
                       return;
 
@@ -147,7 +147,7 @@ export const Providers = ({
               ) : (
                 <Button
                   onClick={() => {
-                    const apiKeyVar = findKeyAndValue("api_key");
+                    const apiKeyVar = findKeyAndValue("API_KEY");
                     if (!apiKeyVar || !selectedSttProvider) return;
 
                     onSetSelectedSttProvider({
@@ -174,7 +174,7 @@ export const Providers = ({
       <div className="space-y-4 mt-2">
         {sttVariables
           ?.filter(
-            (variable) => variable?.key !== findKeyAndValue("api_key")?.key
+            (variable) => variable?.key !== findKeyAndValue("API_KEY")?.key
           )
           .map((variable) => {
             const getVariableValue = () => {

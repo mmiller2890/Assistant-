@@ -31,7 +31,7 @@ export const Providers = ({
   };
 
   const getApiKeyValue = () => {
-    const apiKeyVar = findKeyAndValue("api_key");
+    const apiKeyVar = findKeyAndValue("API_KEY");
     if (!apiKeyVar || !selectedAIProvider?.variables) return "";
     return selectedAIProvider?.variables?.[apiKeyVar.key] || "";
   };
@@ -78,7 +78,7 @@ export const Providers = ({
         />
       ) : null}
 
-      {findKeyAndValue("api_key") ? (
+      {findKeyAndValue("API_KEY") ? (
         <div className="space-y-2">
           <Header
             title="API Key"
@@ -98,7 +98,7 @@ export const Providers = ({
                 placeholder="**********"
                 value={getApiKeyValue()}
                 onChange={(value) => {
-                  const apiKeyVar = findKeyAndValue("api_key");
+                  const apiKeyVar = findKeyAndValue("API_KEY");
                   if (!apiKeyVar || !selectedAIProvider) return;
 
                   onSetSelectedAIProvider({
@@ -111,7 +111,7 @@ export const Providers = ({
                   });
                 }}
                 onKeyDown={(e) => {
-                  const apiKeyVar = findKeyAndValue("api_key");
+                  const apiKeyVar = findKeyAndValue("API_KEY");
                   if (!apiKeyVar || !selectedAIProvider) return;
 
                   onSetSelectedAIProvider({
@@ -128,7 +128,7 @@ export const Providers = ({
               {isApiKeyEmpty() ? (
                 <Button
                   onClick={() => {
-                    const apiKeyVar = findKeyAndValue("api_key");
+                    const apiKeyVar = findKeyAndValue("API_KEY");
                     if (!apiKeyVar || !selectedAIProvider || isApiKeyEmpty())
                       return;
 
@@ -150,7 +150,7 @@ export const Providers = ({
               ) : (
                 <Button
                   onClick={() => {
-                    const apiKeyVar = findKeyAndValue("api_key");
+                    const apiKeyVar = findKeyAndValue("API_KEY");
                     if (!apiKeyVar || !selectedAIProvider) return;
 
                     onSetSelectedAIProvider({
@@ -177,7 +177,7 @@ export const Providers = ({
       <div className="space-y-4 mt-2">
         {variables
           .filter(
-            (variable) => variable.key !== findKeyAndValue("api_key")?.key
+            (variable) => variable.key !== findKeyAndValue("API_KEY")?.key
           )
           .map((variable) => {
             const getVariableValue = () => {

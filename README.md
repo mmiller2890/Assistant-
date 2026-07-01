@@ -10,6 +10,7 @@ This is a **local-only fork** of the open-source [Pluely](https://github.com/iam
 - **Bring Your Own Provider** — any LLM or speech-to-text provider configurable via curl, with full streaming support.
 - **Ollama by Default** — works out of the box against a local Ollama instance; no API keys required. Detects installed models automatically.
 - **Local STT** — run Whisper (faster-whisper) or any mlx-audio ASR model (Parakeet TDT v3, Nemotron, etc.) locally for fully offline speech-to-text.
+- **Real-Time Streaming STT** — Parakeet TDT v3 supports live partial transcriptions via WebSocket streaming. Text appears as you speak, not after.
 - **Audio Capture** — system + microphone audio transcription with VAD.
 - **Screenshot Analysis** — capture and send screenshots to your vision-capable model.
 - **System Prompts** — create, edit, and switch AI behavior profiles.
@@ -42,9 +43,9 @@ This is a **local-only fork** of the open-source [Pluely](https://github.com/iam
   python3.12 -m venv .whisper-venv
   .whisper-venv/bin/pip install faster-whisper fastapi uvicorn python-multipart
 
-  # For mlx-audio STT (Apple Silicon only; supports Parakeet TDT v3 / Nemotron)
+  # For mlx-audio STT + parakeet-mlx streaming (Apple Silicon only; supports Parakeet TDT v3 / Nemotron)
   python3.12 -m venv .mlx-asr-venv
-  .mlx-asr-venv/bin/pip install "git+https://github.com/Blaizzy/mlx-audio.git" fastapi uvicorn python-multipart requests soxr
+  .mlx-asr-venv/bin/pip install "git+https://github.com/Blaizzy/mlx-audio.git" parakeet-mlx fastapi uvicorn python-multipart websockets requests soxr librosa
   ```
 
 ## 🚀 Getting Started
@@ -91,19 +92,37 @@ Available models: `Systran/faster-whisper-tiny`, `base`, `small`, `medium`, `lar
 . .mlx-asr-venv/bin/activate
 python3.12 mlx_asr_server.py
 ```
-Serves at `http://localhost:8001/v1/audio/transcriptions`.
+Serves batch transcription at `http://localhost:8001/v1/audio/transcriptions` and
+live streaming at `ws://localhost:8001/v1/audio/stream`.
 
 Model: `mlx-community/parakeet-tdt-0.6b-v3` (600M, optimized for English).
 
+**Real-time streaming** — when the `local-parakeet` STT provider is selected in
+Dev Space, the app opens a WebSocket to the server and sends audio chunks while
+you speak. Partial transcriptions appear in real-time (within ~1s) and the final
+text is confirmed when speech ends. The streaming uses `parakeet_mlx`'s
+`transcribe_stream` API with cache-aware local attention.
+
+The server uses a dual model loader:
+- **Parakeet variants** → loaded via `parakeet_mlx` (supports both batch and streaming)
+- **Nemotron and other models** → loaded via `mlx_audio.stt` (batch only)
+
+Non-Parakeet models are rejected on the streaming endpoint with an error message.
+
+The chunk interval is configurable in the VAD settings (default: 1000ms). Lower
+values give more responsive partials at the cost of more IPC traffic.
+
 ### Supported AI Providers
 
-Ollama, OpenAI, Claude, Gemini, Grok, Groq, Mistral, Cohere, Perplexity, OpenRouter — plus any custom provider via curl.
+Ollama, OpenAI, Claude, Gemini, Grok, Groq, Mistral, Cohere, Perplexity, OpenRouter, LM Studio — plus any custom provider via curl.
+
+> **LM Studio:** run LM Studio's local server on port 1234, then select the `lm-studio` provider in Dev Space. Set MODEL to the loaded model identifier and API_KEY to any non-empty string (e.g. `lm-studio`).
 
 ### Supported STT Providers
 
 Local Whisper, Local Parakeet TDT v3 (MLX), Local Nemotron (MLX), OpenAI Whisper, Groq Whisper, ElevenLabs, Google, Deepgram, Azure, Speechmatics, Rev.ai, IBM Watson — plus any custom provider via curl.
 
-> **Tip:** Parakeet TDT v3 is the default local STT and is optimized for English. Nemotron supports 35+ languages with streaming.
+> **Tip:** Parakeet TDT v3 is the default local STT and is optimized for English. It supports real-time streaming — text appears as you speak. Nemotron supports 40 languages but batch-only in this setup.
 
 ## 🔒 Privacy
 
@@ -152,5 +171,7 @@ GPL-3.0 — inherited from the original [Pluely](https://github.com/iamsrikanthn
 - [Pluely](https://github.com/iamsrikanthnani/pluely) — the original open-source project by [Srikanth Nani](https://github.com/iamsrikanthnani)
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — CTranslate2-based Whisper inference
 - [mlx-audio](https://github.com/Blaizzy/mlx-audio) — MLX audio models for Apple Silicon
+- [parakeet-mlx](https://github.com/senstella/parakeet-mlx) — Parakeet TDT streaming ASR for MLX
 - [Ollama](https://ollama.com) — local LLM runtime
+- [LM Studio](https://lmstudio.ai) — local model server (OpenAI-compatible)
 - [Tauri](https://tauri.app) — desktop app framework

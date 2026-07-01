@@ -11,6 +11,8 @@ type Props = {
   conversation: ChatConversation;
   conversationMode: boolean;
   setConversationMode: (mode: boolean) => void;
+  partialTranscription?: string;
+  isStreaming?: boolean;
 };
 
 export const ResultsSection = ({
@@ -20,15 +22,20 @@ export const ResultsSection = ({
   conversation,
   conversationMode,
   setConversationMode,
+  partialTranscription = "",
+  isStreaming = false,
 }: Props) => {
   const hasResponse = lastAIResponse || isAIProcessing;
   const hasHistory = conversation.messages.length > 2;
 
-  if (!hasResponse && !lastTranscription) {
+  if (!hasResponse && !lastTranscription && !partialTranscription) {
     return null;
   }
 
   const modKey = isMacOS() ? "⌘" : "Ctrl";
+
+  // Determine which transcription text to show: final takes precedence over partial
+  const transcriptionText = lastTranscription || (isStreaming ? partialTranscription : "");
 
   return (
     <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
@@ -57,9 +64,12 @@ export const ResultsSection = ({
       {!conversationMode && (
         <div className="space-y-2">
           {/* System Input - Just text with bold label */}
-          {lastTranscription && (
+          {transcriptionText && (
             <p className="text-[11px] text-muted-foreground">
-              <span className="font-semibold">System:</span> {lastTranscription}
+              <span className="font-semibold">System:</span>{" "}
+              <span className={isStreaming && !lastTranscription ? "italic opacity-60" : ""}>
+                {transcriptionText}
+              </span>
             </p>
           )}
 
@@ -117,7 +127,7 @@ export const ResultsSection = ({
           )}
 
           {/* System Input - Second */}
-          {lastTranscription && (
+          {transcriptionText && (
             <div className="rounded-md border-l-2 border-primary/50 bg-primary/5 p-2.5">
               <div className="flex items-center gap-1.5 mb-1">
                 <HeadphonesIcon className="h-3 w-3 text-primary" />
@@ -125,7 +135,9 @@ export const ResultsSection = ({
                   System
                 </span>
               </div>
-              <p className="text-sm">{lastTranscription}</p>
+              <p className={cn("text-sm", isStreaming && !lastTranscription && "italic opacity-60")}>
+                {transcriptionText}
+              </p>
             </div>
           )}
 

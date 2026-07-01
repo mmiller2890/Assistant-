@@ -6,7 +6,7 @@ export const SPEECH_TO_TEXT_PROVIDERS = [
       -F "file={{AUDIO}}" \\
       -F "model={{MODEL}}"`,
     responseContentPath: "text",
-    streaming: false,
+    streaming: true,
   },
   {
     id: "local-nemotron",
