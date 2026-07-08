@@ -11,6 +11,8 @@ interface RecordingPanelProps {
   onStartRecording: () => void;
   onStopAndSend: () => void;
   onIgnore: () => void;
+  partialTranscription?: string;
+  isStreaming?: boolean;
 }
 
 export const RecordingPanel = ({
@@ -23,11 +25,28 @@ export const RecordingPanel = ({
   onStartRecording,
   onStopAndSend,
   onIgnore,
+  partialTranscription = "",
+  isStreaming = false,
 }: RecordingPanelProps) => {
   const isWorking = isProcessing || isAIProcessing;
 
   return (
     <div className="rounded-lg border border-border/50 bg-muted/30 overflow-hidden">
+      {/* Live transcription (VAD mode + continuous mode) */}
+      {isStreaming && partialTranscription && !isWorking && (
+        <div className="p-3">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+            <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide">
+              Listening
+            </span>
+          </div>
+          <p className="text-sm italic text-muted-foreground leading-relaxed">
+            {partialTranscription}
+          </p>
+        </div>
+      )}
+
       {/* Manual Mode */}
       {!isVadMode && (
         <div className="p-3 space-y-2">

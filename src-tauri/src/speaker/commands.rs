@@ -78,7 +78,8 @@ pub async fn start_system_audio_capture(
 
     // Update VAD config if provided, auto-enabling chunk emission for streaming
     if let Some(mut config) = vad_config {
-        if streaming.unwrap_or(false) {
+        let stream_enabled = streaming.unwrap_or(false);
+        if stream_enabled {
             config.emit_chunks = true;
         }
         let mut vad_cfg = state

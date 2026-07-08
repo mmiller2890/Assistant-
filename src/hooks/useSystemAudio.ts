@@ -121,12 +121,28 @@ export function useSystemAudio() {
   const streamingFinalizedRef = useRef<boolean>(false);
   const capturedSampleRateRef = useRef<number>(16000);
 
+  // Refs for values needed inside openStreamingSocket that change over time.
+  // Using refs keeps openStreamingSocket's identity stable so the speech
+  // event listeners don't tear down and re-register mid-speech.
+  const useSystemPromptRef = useRef(useSystemPrompt);
+  const systemPromptRef = useRef(systemPrompt);
+  const contextContentRef = useRef(contextContent);
+  const conversationMessagesRef = useRef(conversation.messages);
+  useSystemPromptRef.current = useSystemPrompt;
+  systemPromptRef.current = systemPrompt;
+  contextContentRef.current = contextContent;
+  conversationMessagesRef.current = conversation.messages;
+
   // Open a WebSocket connection to the streaming STT server.
   const openStreamingSocket = useCallback(() => {
     const providerConfig = allSttProviders.find(
       (p) => p.id === selectedSttProvider.provider
     );
     if (!providerConfig?.streaming) return;
+
+    if (wsRef.current) {
+      if (wsRef.current.readyState === WebSocket.OPEN) return;
+    }
 
     try {
       const ws = new WebSocket("ws://localhost:8001/v1/audio/stream");
@@ -146,7 +162,7 @@ export function useSystemAudio() {
         try {
           const data = JSON.parse(event.data);
           if (data.error) {
-            console.error("Streaming STT error:", data.error);
+            console.error("[STT-Stream] Server error:", data.error);
             return;
           }
           if (data.is_final) {
@@ -155,12 +171,11 @@ export function useSystemAudio() {
             setIsStreaming(false);
             streamingFinalizedRef.current = true;
 
-            // Trigger AI processing with the final transcription
             if (data.text && data.text.trim()) {
-              const effectiveSystemPrompt = useSystemPrompt
-                ? systemPrompt || DEFAULT_SYSTEM_PROMPT
-                : contextContent || DEFAULT_SYSTEM_PROMPT;
-              const previousMessages = conversation.messages.map((msg) => ({
+              const effectiveSystemPrompt = useSystemPromptRef.current
+                ? systemPromptRef.current || DEFAULT_SYSTEM_PROMPT
+                : contextContentRef.current || DEFAULT_SYSTEM_PROMPT;
+              const previousMessages = conversationMessagesRef.current.map((msg) => ({
                 role: msg.role,
                 content: msg.content,
               }));
@@ -170,18 +185,17 @@ export function useSystemAudio() {
                 previousMessages
               );
             }
-            // Close the socket after final
             ws.close();
           } else if (data.text) {
             setPartialTranscription(data.text);
           }
         } catch (e) {
-          console.error("Failed to parse streaming message:", e);
+          console.error("[STT-Stream] Failed to parse message:", e);
         }
       };
 
       ws.onerror = (e) => {
-        console.error("WebSocket error:", e);
+        console.error("[STT-Stream] WebSocket error:", e);
         setIsStreaming(false);
       };
 
@@ -192,16 +206,9 @@ export function useSystemAudio() {
 
       wsRef.current = ws;
     } catch (err) {
-      console.error("Failed to open streaming WebSocket:", err);
+      console.error("[STT-Stream] Failed to open WebSocket:", err);
     }
-  }, [
-    allSttProviders,
-    selectedSttProvider,
-    useSystemPrompt,
-    systemPrompt,
-    contextContent,
-    conversation.messages,
-  ]);
+  }, [allSttProviders, selectedSttProvider.provider]);
 
   // Close the streaming WebSocket if open.
   const closeStreamingSocket = useCallback(() => {
@@ -306,9 +313,7 @@ export function useSystemAudio() {
         });
 
         // Speech discarded (too short)
-        discardedUnlisten = await listen("speech-discarded", (event) => {
-          const reason = event.payload as string;
-          console.log("Speech discarded:", reason);
+        discardedUnlisten = await listen("speech-discarded", () => {
           // Don't show error - this is expected behavior
         });
       } catch (err) {
@@ -465,7 +470,6 @@ export function useSystemAudio() {
     capturing,
     selectedSttProvider,
     allSttProviders,
-    conversation.messages.length,
     openStreamingSocket,
     closeStreamingSocket,
   ]);
@@ -858,6 +862,7 @@ export function useSystemAudio() {
       setupRequired ||
       isAIProcessing ||
       !!lastAIResponse ||
+      isStreaming ||
       !!error;
     setIsPopoverOpen(shouldOpenPopover);
     resizeWindow(shouldOpenPopover);
@@ -866,6 +871,7 @@ export function useSystemAudio() {
     setupRequired,
     isAIProcessing,
     lastAIResponse,
+    isStreaming,
     error,
     resizeWindow,
   ]);
