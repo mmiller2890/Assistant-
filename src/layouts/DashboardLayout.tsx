@@ -10,9 +10,7 @@ export const DashboardLayout = () => {
         return <ErrorLayout />;
       }}
       resetKeys={["dashboard-error"]}
-      onReset={() => {
-        console.log("Reset");
-      }}
+      onReset={() => {}}
     >
       <div className="relative flex h-screen w-screen overflow-hidden bg-background">
         {/* Draggable region */}

@@ -449,7 +449,6 @@ export const useCompletion = () => {
         }));
         return;
       }
-      console.log(id, "id");
       try {
         // Fetch the full conversation from SQLite
         const conversation = await getConversationById(id);

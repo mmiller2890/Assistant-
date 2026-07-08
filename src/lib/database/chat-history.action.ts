@@ -474,9 +474,6 @@ export async function migrateLocalStorageToSQLite(): Promise<{
         // Check if conversation already exists in database
         const existing = await getConversationById(conversation.id);
         if (existing) {
-          console.log(
-            `Conversation ${conversation.id} already exists, skipping`
-          );
           continue;
         }
 
@@ -547,13 +544,6 @@ export async function migrateLocalStorageToSQLite(): Promise<{
 
     // Clear localStorage chat history after migration attempt
     safeLocalStorage.removeItem(LEGACY_CHAT_HISTORY_KEY);
-
-    const message =
-      errorCount > 0
-        ? `Migrated ${migratedCount}/${conversations.length} conversations (${errorCount} failed)`
-        : `Successfully migrated ${migratedCount} conversations`;
-
-    console.log(message);
 
     return {
       success: migratedCount > 0 || errorCount === 0,
