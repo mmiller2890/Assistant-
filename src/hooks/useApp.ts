@@ -40,14 +40,7 @@ export const useAppLifecycle = () => {
 
         const result = await migrateLocalStorageToSQLite();
 
-        if (result.success) {
-          if (result.migratedCount > 0) {
-            console.log(
-              `Successfully migrated ${result.migratedCount} conversations to SQLite`
-            );
-          }
-        } else if (result.error) {
-          // Migration failed - log error
+        if (!result.success && result.error) {
           console.error("Migration error:", result.error);
         }
       } catch (error) {
