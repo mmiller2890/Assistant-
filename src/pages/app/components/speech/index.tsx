@@ -347,6 +347,8 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       onStartRecording={startContinuousRecording}
                       onStopAndSend={manualStopAndSend}
                       onIgnore={ignoreContinuousRecording}
+                      partialTranscription={partialTranscription}
+                      isStreaming={isStreaming}
                     />
 
                     {/* AI Response */}
