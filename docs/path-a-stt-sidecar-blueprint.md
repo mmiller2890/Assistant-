@@ -1,8 +1,8 @@
 # Path A: Bundled Local STT Sidecar — Implementation Blueprint
 
-**Status:** Designed, not yet implemented. No deadline — execute when ready.
+**Status:** Abandoned. Superseded by `docs/fluidaudio-rs-blueprint.md`.
 **Date:** 2026-07-08
-**Goal:** Zero-setup local STT — user installs the app, model downloads on first run, transcription works with no terminal, no Python install, no manual server startup.
+**Goal (historical):** Zero-setup local STT — user installs the app, model downloads on first run, transcription works with no terminal, no Python install, no manual server startup.
 
 ## Architecture decision
 
