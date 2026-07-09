@@ -160,6 +160,8 @@ export function useSystemAudio() {
   // Open a WebSocket connection to the streaming STT server.
   const openStreamingSocket = useCallback(() => {
     const currentSelected = selectedSttProviderRef.current;
+    if (currentSelected.provider === "local-fluidaudio") return;
+
     const currentProviders = allSttProvidersRef.current;
     const providerConfig = currentProviders.find(
       (p) => p.id === currentSelected.provider
@@ -371,10 +373,11 @@ export function useSystemAudio() {
     let speechUnlisten: (() => void) | undefined;
     let speechStartUnlisten: (() => void) | undefined;
     let speechChunkUnlisten: (() => void) | undefined;
+    let sttFinalUnlisten: (() => void) | undefined;
 
     const setupEventListener = async () => {
       try {
-        // Speech start: open WebSocket for VAD streaming mode
+        // Speech start: open WebSocket for VAD streaming mode (only for non-local providers)
         speechStartUnlisten = await listen("speech-start", () => {
           openStreamingSocket();
         });
@@ -392,6 +395,27 @@ export function useSystemAudio() {
             bytes[i] = binaryString.charCodeAt(i);
           }
           wsRef.current.send(bytes.buffer);
+        });
+
+        // Local STT final result from Rust streaming/batch path
+        sttFinalUnlisten = await listen("stt-final", (event) => {
+          const text = (event.payload as string) || "";
+          setIsStreaming(false);
+          setPartialTranscription("");
+          setLastTranscription(text);
+          streamingFinalizedRef.current = true;
+
+          // Ignore a late stt-final if the batch path already processed this utterance.
+          if (!batchProcessedForCurrentUtteranceRef.current && text.trim()) {
+            const effectiveSystemPrompt = useSystemPromptRef.current
+              ? systemPromptRef.current || DEFAULT_SYSTEM_PROMPT
+              : contextContentRef.current || DEFAULT_SYSTEM_PROMPT;
+            const previousMessages = conversationMessagesRef.current.map((msg) => ({
+              role: msg.role,
+              content: msg.content,
+            }));
+            processWithAI(text, effectiveSystemPrompt, previousMessages);
+          }
         });
 
         speechUnlisten = await listen("speech-detected", async (event) => {
@@ -506,6 +530,7 @@ export function useSystemAudio() {
       if (speechUnlisten) speechUnlisten();
       if (speechStartUnlisten) speechStartUnlisten();
       if (speechChunkUnlisten) speechChunkUnlisten();
+      if (sttFinalUnlisten) sttFinalUnlisten();
       // Kill any open streaming socket when listeners tear down (e.g., provider switch
       // or unmount) so the old provider's endpoint isn't reused for the next utterance.
       closeStreamingSocket();

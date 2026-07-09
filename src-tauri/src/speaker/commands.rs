@@ -1,5 +1,6 @@
 // Assistant AI Speech Detection, and capture system audio (speaker output) as a stream of f32 samples.
 use crate::speaker::{AudioDevice, SpeakerInput};
+use crate::stt::SttState;
 use anyhow::Result;
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use futures_util::StreamExt;
@@ -60,6 +61,7 @@ pub async fn start_system_audio_capture(
     vad_config: Option<VadConfig>,
     device_id: Option<String>,
     streaming: Option<bool>,
+    selected_stt_provider: Option<String>,
 ) -> Result<(), String> {
     let state = app.state::<crate::AudioState>();
 
@@ -113,6 +115,14 @@ pub async fn start_system_audio_capture(
         .map_err(|e| format!("Failed to read VAD config: {}", e))?
         .clone();
 
+    // Store selected provider so the capture task can branch between local-fluidaudio
+    // and custom streaming providers.
+    *state
+        .selected_stt_provider
+        .lock()
+        .map_err(|e| format!("Failed to store selected STT provider: {}", e))? =
+        selected_stt_provider.clone();
+
     // Mark as capturing BEFORE spawning task
     *state
         .is_capturing
@@ -125,9 +135,9 @@ pub async fn start_system_audio_capture(
     let state_clone = app.state::<crate::AudioState>();
     let task = tokio::spawn(async move {
         if vad_config.enabled {
-            run_vad_capture(app_clone.clone(), stream, sr, vad_config).await;
+            run_vad_capture(app_clone.clone(), stream, sr, vad_config, selected_stt_provider).await;
         } else {
-            run_continuous_capture(app_clone.clone(), stream, sr, vad_config).await;
+            run_continuous_capture(app_clone.clone(), stream, sr, vad_config, selected_stt_provider).await;
         }
 
         let state = app_clone.state::<crate::AudioState>();
@@ -152,6 +162,7 @@ async fn run_vad_capture(
     stream: impl StreamExt<Item = f32> + Unpin,
     sr: u32,
     config: VadConfig,
+    selected_stt_provider: Option<String>,
 ) {
     let mut stream = stream;
     let mut buffer: VecDeque<f32> = VecDeque::new();
@@ -163,10 +174,12 @@ async fn run_vad_capture(
     let mut speech_chunks = 0;
     let max_samples = sr as usize * 30; // 30s safety cap per utterance
 
-    // Streaming chunk emission state
+    let use_local_stt = selected_stt_provider.as_deref() == Some("local-fluidaudio");
+    let chunk_interval = Duration::from_millis(config.chunk_interval_ms);
+
+    // Streaming state
     let mut last_emitted_len: usize = 0;
     let mut last_chunk_time: Option<Instant> = None;
-    let chunk_interval = Duration::from_millis(config.chunk_interval_ms);
 
     while let Some(sample) = stream.next().await {
         buffer.push_back(sample);
@@ -195,23 +208,43 @@ async fn run_vad_capture(
                     // Include pre-speech buffer for natural sound
                     speech_buffer.extend(pre_speech.drain(..));
 
-                    let _ = app.emit("speech-start", ());
-                    last_emitted_len = 0;
-                    last_chunk_time = Some(Instant::now());
+                    if use_local_stt {
+                        if let Some(stt_state) = app.try_state::<SttState>() {
+                            let _ = stt_state.init_streaming_asr(&app);
+                            let _ = stt_state.streaming_start();
+                        }
+                        let _ = app.emit("speech-start", ());
+                    } else {
+                        let _ = app.emit("speech-start", ());
+                        last_emitted_len = 0;
+                        last_chunk_time = Some(Instant::now());
+                    }
                 }
 
                 speech_chunks += 1;
                 speech_buffer.extend_from_slice(&mono);
                 silence_chunks = 0; // Reset silence counter on any speech
 
-                // Emit incremental streaming chunks while speaking
-                if config.emit_chunks {
-                    if let Some(t) = last_chunk_time {
-                        if t.elapsed() >= chunk_interval
+                if use_local_stt {
+                    // Feed accumulated new samples to local streaming ASR each chunk interval.
+                    if let Some(stt_state) = app.try_state::<SttState>() {
+                        if last_chunk_time.map_or(true, |t| t.elapsed() >= chunk_interval)
                             && speech_buffer.len() > last_emitted_len
                         {
-                            let new_samples =
-                                &speech_buffer[last_emitted_len..];
+                            let new_samples = &speech_buffer[last_emitted_len..];
+                            let cleaned = apply_noise_gate(new_samples, config.noise_gate_threshold);
+                            let normalized = normalize_audio_level(&cleaned, 0.1);
+                            let samples_16k = resample_to_16khz(&normalized, sr);
+                            let _ = stt_state.streaming_feed(&samples_16k);
+                            last_emitted_len = speech_buffer.len();
+                            last_chunk_time = Some(Instant::now());
+                        }
+                    }
+                } else if config.emit_chunks {
+                    // Emit incremental streaming chunks for custom providers
+                    if let Some(t) = last_chunk_time {
+                        if t.elapsed() >= chunk_interval && speech_buffer.len() > last_emitted_len {
+                            let new_samples = &speech_buffer[last_emitted_len..];
                             let cleaned = apply_noise_gate(
                                 new_samples,
                                 config.noise_gate_threshold,
@@ -228,15 +261,21 @@ async fn run_vad_capture(
 
                 // Safety cap: force emit if exceeds 30s
                 if speech_buffer.len() > max_samples {
-                    let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
-                    if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
-                        // let duration = speech_buffer.len() as f32 / sr as f32;
-                        let _ = app.emit("speech-detected", b64);
+                    if use_local_stt {
+                        if let Some(stt_state) = app.try_state::<SttState>() {
+                            let _ = stt_state.streaming_finish(&app);
+                        }
+                    } else {
+                        let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
+                        if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
+                            let _ = app.emit("speech-detected", b64);
+                        }
                     }
                     speech_buffer.clear();
                     in_speech = false;
                     speech_chunks = 0;
                     last_emitted_len = 0;
+                    last_chunk_time = None;
                 }
             } else {
                 // Silence detected
@@ -248,7 +287,6 @@ async fn run_vad_capture(
 
                     // Check if silence duration exceeds threshold
                     if silence_chunks >= config.silence_chunks {
-                        // Verify minimum speech duration
                         if speech_chunks >= config.min_speech_chunks && !speech_buffer.is_empty() {
                             // Trim trailing silence (keep ~0.15s for natural ending)
                             let silence_duration_samples = silence_chunks * config.hop_size;
@@ -260,16 +298,37 @@ async fn run_vad_capture(
                                 speech_buffer.truncate(speech_buffer.len() - trim_amount);
                             }
 
-                            // Emit complete speech segment
-                            let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
-                            if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
-                                // let duration = speech_buffer.len() as f32 / sr as f32;
-                                let _ = app.emit("speech-detected", b64);
+                            if use_local_stt {
+                                // Feed any remaining samples before finishing.
+                                if let Some(stt_state) = app.try_state::<SttState>() {
+                                    if speech_buffer.len() > last_emitted_len {
+                                        let new_samples = &speech_buffer[last_emitted_len..];
+                                        let cleaned = apply_noise_gate(
+                                            new_samples,
+                                            config.noise_gate_threshold,
+                                        );
+                                        let normalized = normalize_audio_level(&cleaned, 0.1);
+                                        let samples_16k = resample_to_16khz(&normalized, sr);
+                                        let _ = stt_state.streaming_feed(&samples_16k);
+                                    }
+                                    let _ = stt_state.streaming_finish(&app);
+                                }
                             } else {
-                                error!("Failed to encode speech to WAV");
-                                let _ = app.emit("audio-encoding-error", "Failed to encode speech");
+                                // Emit complete speech segment
+                                let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
+                                if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
+                                    let _ = app.emit("speech-detected", b64);
+                                } else {
+                                    error!("Failed to encode speech to WAV");
+                                    let _ = app.emit("audio-encoding-error", "Failed to encode speech");
+                                }
                             }
                         } else {
+                            if use_local_stt {
+                                if let Some(stt_state) = app.try_state::<SttState>() {
+                                    let _ = stt_state.streaming_finish(&app);
+                                }
+                            }
                             let _ = app.emit(
                                 "speech-discarded",
                                 "Audio too short (likely background noise)",
@@ -282,6 +341,7 @@ async fn run_vad_capture(
                         silence_chunks = 0;
                         speech_chunks = 0;
                         last_emitted_len = 0;
+                        last_chunk_time = None;
                     }
                 } else {
                     // Not in speech yet - maintain rolling pre-speech buffer
@@ -300,6 +360,13 @@ async fn run_vad_capture(
             }
         }
     }
+
+    // Ensure any dangling local streaming session is finished when the stream ends.
+    if use_local_stt && in_speech {
+        if let Some(stt_state) = app.try_state::<SttState>() {
+            let _ = stt_state.streaming_finish(&app);
+        }
+    }
 }
 
 // Continuous capture (VAD disabled)
@@ -308,6 +375,7 @@ async fn run_continuous_capture(
     stream: impl StreamExt<Item = f32> + Unpin,
     sr: u32,
     config: VadConfig,
+    _selected_stt_provider: Option<String>,
 ) {
     let mut stream = stream;
     let max_samples = (sr as u64 * config.max_recording_duration_secs) as usize;
@@ -459,6 +527,28 @@ fn calculate_audio_metrics(chunk: &[f32]) -> (f32, f32) {
 
     let rms = (sumsq / chunk.len() as f32).sqrt();
     (rms, peak)
+}
+
+fn resample_to_16khz(samples: &[f32], source_rate: u32) -> Vec<f32> {
+    if source_rate == 16000 || samples.is_empty() {
+        return samples.to_vec();
+    }
+
+    let ratio = source_rate as f64 / 16000.0;
+    let target_len = (samples.len() as f64 / ratio) as usize;
+    let mut resampled = Vec::with_capacity(target_len);
+
+    for i in 0..target_len {
+        let src_idx = (i as f64 * ratio) as f64;
+        let idx_floor = src_idx.floor() as usize;
+        let idx_ceil = (idx_floor + 1).min(samples.len() - 1);
+        let frac = src_idx - idx_floor as f64;
+        let a = samples[idx_floor] as f64;
+        let b = samples[idx_ceil] as f64;
+        resampled.push((a + (b - a) * frac) as f32);
+    }
+
+    resampled
 }
 
 fn normalize_audio_level(samples: &[f32], target_rms: f32) -> Vec<f32> {
