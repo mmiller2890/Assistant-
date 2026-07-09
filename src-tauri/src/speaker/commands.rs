@@ -444,6 +444,10 @@ fn apply_noise_gate(samples: &[f32], threshold: f32) -> Vec<f32> {
 
 // Calculate RMS and peak (optimized)
 fn calculate_audio_metrics(chunk: &[f32]) -> (f32, f32) {
+    if chunk.is_empty() {
+        return (0.0, 0.0);
+    }
+
     let mut sumsq = 0.0f32;
     let mut peak = 0.0f32;
 
@@ -653,8 +657,14 @@ pub async fn update_vad_config(app: AppHandle, config: VadConfig) -> Result<(), 
     if config.sensitivity_rms < 0.0 || config.sensitivity_rms > 1.0 {
         return Err("Invalid sensitivity_rms: must be 0.0-1.0".to_string());
     }
-    if config.max_recording_duration_secs > 3600 {
-        return Err("Invalid max_recording_duration_secs: must be <= 3600 (1 hour)".to_string());
+    if config.hop_size == 0 {
+        return Err("Invalid hop_size: must be > 0".to_string());
+    }
+    if config.noise_gate_threshold <= 0.0 {
+        return Err("Invalid noise_gate_threshold: must be > 0.0".to_string());
+    }
+    if config.max_recording_duration_secs == 0 || config.max_recording_duration_secs > 3600 {
+        return Err("Invalid max_recording_duration_secs: must be 1-3600".to_string());
     }
 
     let state = app.state::<crate::AudioState>();

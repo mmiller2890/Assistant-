@@ -19,6 +19,9 @@ import {
   isMacOS,
   isWindows,
 } from "@/lib";
+import { deepVariableReplacer } from "@/lib/functions/common.function";
+import curl2Json from "@bany/curl-to-json";
+import { TYPE_PROVIDER } from "@/types";
 import { Message } from "@/types/completion";
 
 // VAD Configuration interface matching Rust
@@ -119,7 +122,22 @@ export function useSystemAudio() {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const streamingFinalizedRef = useRef<boolean>(false);
+  const batchProcessedForCurrentUtteranceRef = useRef<boolean>(false);
   const capturedSampleRateRef = useRef<number>(16000);
+
+  // Build the streaming WebSocket URL from the selected provider's config.
+  function buildStreamingUrl(
+    provider: TYPE_PROVIDER,
+    selected: { provider: string; variables: Record<string, string> }
+  ): string {
+    if (provider.streamingUrl) {
+      return deepVariableReplacer(provider.streamingUrl, selected.variables);
+    }
+    const curlJson = curl2Json(provider.curl);
+    const baseUrl = (curlJson.url as string) || "";
+    const replaced = deepVariableReplacer(baseUrl, selected.variables);
+    return replaced.replace(/^http/, "ws");
+  }
 
   // Refs for values needed inside openStreamingSocket that change over time.
   // Using refs keeps openStreamingSocket's identity stable so the speech
@@ -144,8 +162,14 @@ export function useSystemAudio() {
       if (wsRef.current.readyState === WebSocket.OPEN) return;
     }
 
+    // Reset per-utterance guards before attempting a new connection.
+    // This ensures a failed WebSocket still allows the batch STT fallback.
+    streamingFinalizedRef.current = false;
+    batchProcessedForCurrentUtteranceRef.current = false;
+
     try {
-      const ws = new WebSocket("ws://localhost:8001/v1/audio/stream");
+      const wsUrl = buildStreamingUrl(providerConfig, selectedSttProvider);
+      const ws = new WebSocket(wsUrl);
       ws.binaryType = "arraybuffer";
 
       ws.onopen = () => {
@@ -155,7 +179,6 @@ export function useSystemAudio() {
           })
         );
         setIsStreaming(true);
-        streamingFinalizedRef.current = false;
       };
 
       ws.onmessage = (event) => {
@@ -171,7 +194,8 @@ export function useSystemAudio() {
             setIsStreaming(false);
             streamingFinalizedRef.current = true;
 
-            if (data.text && data.text.trim()) {
+            // Ignore a late is_final if the batch path already processed this utterance.
+            if (!batchProcessedForCurrentUtteranceRef.current && data.text && data.text.trim()) {
               const effectiveSystemPrompt = useSystemPromptRef.current
                 ? systemPromptRef.current || DEFAULT_SYSTEM_PROMPT
                 : contextContentRef.current || DEFAULT_SYSTEM_PROMPT;
@@ -208,7 +232,7 @@ export function useSystemAudio() {
     } catch (err) {
       console.error("[STT-Stream] Failed to open WebSocket:", err);
     }
-  }, [allSttProviders, selectedSttProvider.provider]);
+  }, [allSttProviders, selectedSttProvider]);
 
   // Close the streaming WebSocket if open.
   const closeStreamingSocket = useCallback(() => {
@@ -377,6 +401,10 @@ export function useSystemAudio() {
             // Close any lingering streaming socket before batch fallback
             closeStreamingSocket();
 
+            // Mark that we're processing this utterance via batch STT,
+            // so a late streaming is_final doesn't trigger duplicate AI processing.
+            batchProcessedForCurrentUtteranceRef.current = true;
+
             const base64Audio = event.payload as string;
             // Convert to blob
             const binaryString = atob(base64Audio);
@@ -425,9 +453,11 @@ export function useSystemAudio() {
                   ? systemPrompt || DEFAULT_SYSTEM_PROMPT
                   : contextContent || DEFAULT_SYSTEM_PROMPT;
 
-                const previousMessages = conversation.messages.map((msg) => {
-                  return { role: msg.role, content: msg.content };
-                });
+                const previousMessages = conversationMessagesRef.current.map(
+                  (msg) => {
+                    return { role: msg.role, content: msg.content };
+                  }
+                );
 
                 await processWithAI(
                   transcription,
@@ -805,6 +835,8 @@ export function useSystemAudio() {
       setIsStreaming(false);
       setError("");
       setIsPopoverOpen(false);
+      streamingFinalizedRef.current = false;
+      batchProcessedForCurrentUtteranceRef.current = false;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       setError(`Failed to stop capture: ${errorMessage}`);
