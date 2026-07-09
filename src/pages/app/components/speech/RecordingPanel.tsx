@@ -103,7 +103,7 @@ export const RecordingPanel = ({
                     <div
                       className="bg-red-500 h-1 rounded-full transition-all duration-500"
                       style={{
-                        width: `${(recordingProgress / maxDuration) * 100}%`,
+                        width: `${maxDuration > 0 ? (recordingProgress / maxDuration) * 100 : 0}%`,
                       }}
                     />
                   </div>
