@@ -383,6 +383,9 @@ export function useSystemAudio() {
       try {
         // Speech start: open WebSocket for VAD streaming mode (only for non-local providers)
         speechStartUnlisten = await listen("speech-start", () => {
+          if (selectedSttProviderRef.current.provider === "local-fluidaudio") {
+            return;
+          }
           openStreamingSocket();
         });
 
@@ -794,8 +797,10 @@ export function useSystemAudio() {
           setError("Local STT requires macOS Apple Silicon — switched to cloud STT");
         } else if (!asrReady && !isSttInitializing) {
           await initStt();
-          // If init failed, the error state will be set and the user can retry.
-          if (!asrReady) {
+          // asrReady from the hook state is updated asynchronously via the stt-ready
+          // event, so check status directly to avoid a first-run race.
+          const status = await invoke<{ asr_ready: boolean }>("stt_get_status");
+          if (!status.asr_ready) {
             setError("Failed to initialize local speech model. Please try again.");
             return;
           }

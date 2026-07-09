@@ -10,6 +10,9 @@ Assistant is a local-only fork of an open-source Pluely project — a Tauri 2 + 
 - **Local STT:** fluidaudio-rs in-process ASR on macOS Apple Silicon (default), with fallback to faster-whisper server (`localhost:8000`) or mlx-audio ASR (`localhost:8001`) as advanced options
 - **Language:** TypeScript (frontend), Rust (backend), Python (advanced local STT servers)
 
+### Known local STT limitation
+- Parakeet streaming via fluidaudio-rs does **not** expose live partial transcription; text is delivered only after the utterance ends (via the `stt-final` event). Custom streaming providers still show partials via WebSocket.
+
 ## Commands
 
 ### Install

@@ -258,6 +258,10 @@ Lazy init happens on first capture attempt, not app startup, so users who never 
 - [ ] Add bundle metadata (publisher, copyright, category)
 - [ ] Remove unused `TAURI_SIGNING_PRIVATE_KEY*` from `publish.yml`
 
+## Known limitations
+
+- **No live partial transcription for Parakeet streaming.** `fluidaudio-rs` 0.14.1's `streaming_asr_feed()` returns `Result<(), String>` and accumulates audio internally; partial text is only available after `streaming_asr_finish()` returns. The frontend `stt-final` event delivers the full transcript on silence. The "Listening" indicator shows, but no partial words appear. Custom providers (e.g., `local-parakeet`) still show partials via the WebSocket path. Qwen3 streaming in fluidaudio-rs exposes partials and could be adopted later if live preview is required.
+
 ## What gets removed/simplified
 
 After fluidaudio-rs is integrated:
