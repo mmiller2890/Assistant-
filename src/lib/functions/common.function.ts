@@ -32,6 +32,46 @@ export async function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+/**
+ * Decodes a base64-encoded WAV blob into 16kHz mono f32 samples.
+ * Uses the Web Audio API. If AudioContext is unavailable in the runtime,
+ * this will reject.
+ */
+export async function wavBase64ToF32Samples(base64: string): Promise<Float32Array> {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  const blob = new Blob([bytes], { type: "audio/wav" });
+  const arrayBuffer = await blob.arrayBuffer();
+
+  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioContextClass) {
+    throw new Error("AudioContext is not available in this environment");
+  }
+
+  const audioContext = new AudioContextClass({ sampleRate: 16000 });
+  try {
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    const channel = audioBuffer.getChannelData(0);
+
+    if (audioBuffer.sampleRate === 16000) {
+      return channel;
+    }
+
+    const ratio = audioBuffer.sampleRate / 16000;
+    const targetLength = Math.floor(channel.length / ratio);
+    const resampled = new Float32Array(targetLength);
+    for (let i = 0; i < targetLength; i++) {
+      resampled[i] = channel[Math.floor(i * ratio)];
+    }
+    return resampled;
+  } finally {
+    await audioContext.close();
+  }
+}
+
 export function extractVariables(
   curl: string,
   includeAll = false

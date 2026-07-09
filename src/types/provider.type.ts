@@ -4,5 +4,6 @@ export interface TYPE_PROVIDER {
   streamingUrl?: string;
   responseContentPath?: string;
   isCustom?: boolean;
+  platform?: string;
   curl: string;
 }

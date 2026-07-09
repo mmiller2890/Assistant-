@@ -112,7 +112,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [selectedSttProvider, setSelectedSttProvider] = useState<{
     provider: string;
     variables: Record<string, string>;
-  }>({ provider: "local-parakeet", variables: { MODEL: "mlx-community/parakeet-tdt-0.6b-v3" } });
+  }>({ provider: "local-fluidaudio", variables: {} });
 
   const [screenshotConfiguration, setScreenshotConfiguration] =
     useState<ScreenshotConfig>({
@@ -247,7 +247,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
         setSelectedSttProvider(parsed);
       } catch {
-        setSelectedSttProvider({ provider: "local-parakeet", variables: { MODEL: "mlx-community/parakeet-tdt-0.6b-v3" } });
+        setSelectedSttProvider({ provider: "local-fluidaudio", variables: {} });
       }
     }
 
