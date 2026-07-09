@@ -142,10 +142,16 @@ export function useSystemAudio() {
   // Refs for values needed inside openStreamingSocket that change over time.
   // Using refs keeps openStreamingSocket's identity stable so the speech
   // event listeners don't tear down and re-register mid-speech.
+  const capturingRef = useRef(capturing);
+  const selectedSttProviderRef = useRef(selectedSttProvider);
+  const allSttProvidersRef = useRef(allSttProviders);
   const useSystemPromptRef = useRef(useSystemPrompt);
   const systemPromptRef = useRef(systemPrompt);
   const contextContentRef = useRef(contextContent);
   const conversationMessagesRef = useRef(conversation.messages);
+  capturingRef.current = capturing;
+  selectedSttProviderRef.current = selectedSttProvider;
+  allSttProvidersRef.current = allSttProviders;
   useSystemPromptRef.current = useSystemPrompt;
   systemPromptRef.current = systemPrompt;
   contextContentRef.current = contextContent;
@@ -153,8 +159,10 @@ export function useSystemAudio() {
 
   // Open a WebSocket connection to the streaming STT server.
   const openStreamingSocket = useCallback(() => {
-    const providerConfig = allSttProviders.find(
-      (p) => p.id === selectedSttProvider.provider
+    const currentSelected = selectedSttProviderRef.current;
+    const currentProviders = allSttProvidersRef.current;
+    const providerConfig = currentProviders.find(
+      (p) => p.id === currentSelected.provider
     );
     if (!providerConfig?.streaming) return;
 
@@ -168,7 +176,7 @@ export function useSystemAudio() {
     batchProcessedForCurrentUtteranceRef.current = false;
 
     try {
-      const wsUrl = buildStreamingUrl(providerConfig, selectedSttProvider);
+      const wsUrl = buildStreamingUrl(providerConfig, currentSelected);
       const ws = new WebSocket(wsUrl);
       ws.binaryType = "arraybuffer";
 
@@ -232,7 +240,7 @@ export function useSystemAudio() {
     } catch (err) {
       console.error("[STT-Stream] Failed to open WebSocket:", err);
     }
-  }, [allSttProviders, selectedSttProvider]);
+  }, []);
 
   // Close the streaming WebSocket if open.
   const closeStreamingSocket = useCallback(() => {
@@ -388,7 +396,7 @@ export function useSystemAudio() {
 
         speechUnlisten = await listen("speech-detected", async (event) => {
           try {
-            if (!capturing) return;
+            if (!capturingRef.current) return;
 
             // Double-trigger guard: if streaming already produced final text,
             // skip the batch STT flow — just cleanup.
@@ -414,13 +422,16 @@ export function useSystemAudio() {
             }
             const audioBlob = new Blob([bytes], { type: "audio/wav" });
 
-            if (!selectedSttProvider.provider) {
+            const currentSelected = selectedSttProviderRef.current;
+            const currentProviders = allSttProvidersRef.current;
+
+            if (!currentSelected.provider) {
               setError("No speech provider selected.");
               return;
             }
 
-            const providerConfig = allSttProviders.find(
-              (p) => p.id === selectedSttProvider.provider
+            const providerConfig = currentProviders.find(
+              (p) => p.id === currentSelected.provider
             );
 
             if (!providerConfig) {
@@ -440,7 +451,7 @@ export function useSystemAudio() {
             try {
               const transcription = await fetchSTT({
                 provider: providerConfig,
-                selectedProvider: selectedSttProvider,
+                selectedProvider: currentSelected,
                 audio: audioBlob,
                 signal: sttAbortController.signal,
               });
@@ -449,9 +460,9 @@ export function useSystemAudio() {
                 setLastTranscription(transcription);
                 setError("");
 
-                const effectiveSystemPrompt = useSystemPrompt
-                  ? systemPrompt || DEFAULT_SYSTEM_PROMPT
-                  : contextContent || DEFAULT_SYSTEM_PROMPT;
+                const effectiveSystemPrompt = useSystemPromptRef.current
+                  ? systemPromptRef.current || DEFAULT_SYSTEM_PROMPT
+                  : contextContentRef.current || DEFAULT_SYSTEM_PROMPT;
 
                 const previousMessages = conversationMessagesRef.current.map(
                   (msg) => {
@@ -495,14 +506,13 @@ export function useSystemAudio() {
       if (speechUnlisten) speechUnlisten();
       if (speechStartUnlisten) speechStartUnlisten();
       if (speechChunkUnlisten) speechChunkUnlisten();
+      // Kill any open streaming socket when listeners tear down (e.g., provider switch
+      // or unmount) so the old provider's endpoint isn't reused for the next utterance.
+      closeStreamingSocket();
+      streamingFinalizedRef.current = false;
+      batchProcessedForCurrentUtteranceRef.current = false;
     };
-  }, [
-    capturing,
-    selectedSttProvider,
-    allSttProviders,
-    openStreamingSocket,
-    closeStreamingSocket,
-  ]);
+  }, [openStreamingSocket, closeStreamingSocket]);
 
   // Context management functions
   const saveContextSettings = useCallback(
@@ -767,6 +777,7 @@ export function useSystemAudio() {
       });
 
       setCapturing(true);
+      capturingRef.current = true;
       setIsPopoverOpen(true);
       setIsContinuousMode(isContinuous);
       setRecordingProgress(0);
@@ -837,6 +848,9 @@ export function useSystemAudio() {
       setIsPopoverOpen(false);
       streamingFinalizedRef.current = false;
       batchProcessedForCurrentUtteranceRef.current = false;
+      // Capturing ref is updated by the synchronous assignment above, but
+      // ensure it stays false if stopCapture is called multiple times.
+      capturingRef.current = false;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       setError(`Failed to stop capture: ${errorMessage}`);
