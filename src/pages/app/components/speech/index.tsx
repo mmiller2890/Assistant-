@@ -5,6 +5,7 @@ import {
   PopoverTrigger,
   PopoverContent,
   ScrollArea,
+  SttInitOverlay,
 } from "@/components";
 import {
   HeadphonesIcon,
@@ -66,6 +67,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
     startContinuousRecording,
     ignoreContinuousRecording,
     scrollAreaRef,
+    isSttInitializing,
   } = props;
 
   const { hasActiveLicense, supportsImages } = useApp();
@@ -205,7 +207,9 @@ export const SystemAudio = (props: useSystemAudioType) => {
           className="select-none w-screen p-0 border shadow-lg overflow-hidden border-input/50"
           sideOffset={8}
         >
-          <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
+          <div className="relative flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
+            {isSttInitializing && <SttInitOverlay />}
+
             {/* Header - Mode Switcher + Actions */}
             <div className="flex-shrink-0 p-3 border-b border-border/50">
               <div className="flex items-center justify-between gap-2">

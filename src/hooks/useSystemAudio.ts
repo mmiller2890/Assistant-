@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useApp } from "@/contexts";
 import { fetchSTT, fetchAIResponse } from "@/lib/functions";
+import { useSttStatus } from "./useSttStatus";
 import {
   DEFAULT_QUICK_ACTIONS,
   DEFAULT_SYSTEM_PROMPT,
@@ -115,7 +116,10 @@ export function useSystemAudio() {
     allAiProviders,
     systemPrompt,
     selectedAudioDevices,
+    onSetSelectedSttProvider,
   } = useApp();
+  const { isSupported, asrReady, isInitializing: isSttInitializing, init: initStt } =
+    useSttStatus();
   const abortControllerRef = useRef<AbortController | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isSavingRef = useRef<boolean>(false);
@@ -666,6 +670,7 @@ export function useSystemAudio() {
         vadConfig: vadConfig,
         deviceId: deviceId,
         streaming: providerConfig?.streaming === true,
+        selectedSttProvider: selectedSttProvider.provider,
       });
     } catch (err) {
       console.error("Failed to start continuous recording:", err);
@@ -782,6 +787,21 @@ export function useSystemAudio() {
     try {
       setError("");
 
+      // Lazy-init local STT on first capture attempt.
+      if (selectedSttProvider.provider === "local-fluidaudio") {
+        if (!isSupported) {
+          onSetSelectedSttProvider({ provider: "groq", variables: {} });
+          setError("Local STT requires macOS Apple Silicon — switched to cloud STT");
+        } else if (!asrReady && !isSttInitializing) {
+          await initStt();
+          // If init failed, the error state will be set and the user can retry.
+          if (!asrReady) {
+            setError("Failed to initialize local speech model. Please try again.");
+            return;
+          }
+        }
+      }
+
       const hasAccess = await invoke<boolean>("check_system_audio_access");
       if (!hasAccess) {
         setSetupRequired(true);
@@ -831,6 +851,7 @@ export function useSystemAudio() {
         vadConfig: vadConfig,
         deviceId: deviceId,
         streaming: providerConfig?.streaming === true,
+        selectedSttProvider: selectedSttProvider.provider,
       });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -841,7 +862,12 @@ export function useSystemAudio() {
     vadConfig,
     selectedAudioDevices.output.id,
     allSttProviders,
-    selectedSttProvider.provider,
+    selectedSttProvider,
+    isSupported,
+    asrReady,
+    isSttInitializing,
+    initStt,
+    onSetSelectedSttProvider,
   ]);
 
   const stopCapture = useCallback(async () => {
@@ -1137,6 +1163,7 @@ export function useSystemAudio() {
     isStreaming,
     error,
     setupRequired,
+    isSttInitializing,
     startCapture,
     stopCapture,
     handleSetup,
