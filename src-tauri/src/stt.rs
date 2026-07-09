@@ -2,7 +2,7 @@
 use fluidaudio_rs::FluidAudio;
 use serde_json;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 
 pub struct SttInner {
     #[cfg(target_os = "macos")]
