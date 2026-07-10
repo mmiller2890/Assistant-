@@ -799,10 +799,18 @@ export function useSystemAudio() {
           await initStt();
           // asrReady from the hook state is updated asynchronously via the stt-ready
           // event, so check status directly to avoid a first-run race.
-          const status = await invoke<{ asr_ready: boolean }>("stt_get_status");
+          const status = await invoke<{ asr_ready: boolean; streaming_ready: boolean }>("stt_get_status");
           if (!status.asr_ready) {
             setError("Failed to initialize local speech model. Please try again.");
             return;
+          }
+          // Pre-initialize streaming ASR so the VAD loop never blocks on first speech.
+          if (!status.streaming_ready) {
+            try {
+              await invoke("stt_init_streaming");
+            } catch (err) {
+              console.error("Failed to initialize streaming ASR:", err);
+            }
           }
         }
       }

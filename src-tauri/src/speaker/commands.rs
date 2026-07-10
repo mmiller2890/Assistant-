@@ -210,7 +210,6 @@ async fn run_vad_capture(
 
                     if use_local_stt {
                         if let Some(stt_state) = app.try_state::<SttState>() {
-                            let _ = stt_state.init_streaming_asr(&app);
                             let _ = stt_state.streaming_start();
                         }
                         let _ = app.emit("speech-start", ());
@@ -262,8 +261,21 @@ async fn run_vad_capture(
                 // Safety cap: force emit if exceeds 30s
                 if speech_buffer.len() > max_samples {
                     if use_local_stt {
+                        let mut local_text = String::new();
                         if let Some(stt_state) = app.try_state::<SttState>() {
-                            let _ = stt_state.streaming_finish(&app);
+                            if let Ok(text) = stt_state.streaming_finish(&app) {
+                                local_text = text;
+                            }
+                        }
+
+                        if local_text.trim().is_empty() {
+                            let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
+                            if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
+                                let _ = app.emit("speech-detected", b64);
+                            } else {
+                                error!("Failed to encode speech to WAV");
+                                let _ = app.emit("audio-encoding-error", "Failed to encode speech");
+                            }
                         }
                     } else {
                         let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
@@ -300,6 +312,7 @@ async fn run_vad_capture(
 
                             if use_local_stt {
                                 // Feed any remaining samples before finishing.
+                                let mut local_text = String::new();
                                 if let Some(stt_state) = app.try_state::<SttState>() {
                                     if speech_buffer.len() > last_emitted_len {
                                         let new_samples = &speech_buffer[last_emitted_len..];
@@ -311,7 +324,20 @@ async fn run_vad_capture(
                                         let samples_16k = resample_to_16khz(&normalized, sr);
                                         let _ = stt_state.streaming_feed(&samples_16k);
                                     }
-                                    let _ = stt_state.streaming_finish(&app);
+                                    if let Ok(text) = stt_state.streaming_finish(&app) {
+                                        local_text = text;
+                                    }
+                                }
+
+                                if local_text.trim().is_empty() {
+                                    // Streaming returned nothing — fall back to batch STT.
+                                    let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
+                                    if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
+                                        let _ = app.emit("speech-detected", b64);
+                                    } else {
+                                        error!("Failed to encode speech to WAV");
+                                        let _ = app.emit("audio-encoding-error", "Failed to encode speech");
+                                    }
                                 }
                             } else {
                                 // Emit complete speech segment
@@ -363,8 +389,21 @@ async fn run_vad_capture(
 
     // Ensure any dangling local streaming session is finished when the stream ends.
     if use_local_stt && in_speech {
+        let mut local_text = String::new();
         if let Some(stt_state) = app.try_state::<SttState>() {
-            let _ = stt_state.streaming_finish(&app);
+            if let Ok(text) = stt_state.streaming_finish(&app) {
+                local_text = text;
+            }
+        }
+
+        if local_text.trim().is_empty() {
+            let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
+            if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
+                let _ = app.emit("speech-detected", b64);
+            } else {
+                error!("Failed to encode speech to WAV");
+                let _ = app.emit("audio-encoding-error", "Failed to encode speech");
+            }
         }
     }
 }
