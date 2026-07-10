@@ -4,7 +4,7 @@ import {
   SPEECH_TO_TEXT_PROVIDERS,
   STORAGE_KEYS,
 } from "@/config";
-import { getPlatform, safeLocalStorage, trackAppStart } from "@/lib";
+import { getPlatform, safeLocalStorage, trackAppStart, isMacOS } from "@/lib";
 import { getShortcutsConfig } from "@/lib/storage";
 import {
   getCustomizableState,
@@ -112,7 +112,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [selectedSttProvider, setSelectedSttProvider] = useState<{
     provider: string;
     variables: Record<string, string>;
-  }>({ provider: "local-parakeet", variables: { MODEL: "mlx-community/parakeet-tdt-0.6b-v3" } });
+  }>({ provider: "local-fluidaudio", variables: {} });
 
   const [screenshotConfiguration, setScreenshotConfiguration] =
     useState<ScreenshotConfig>({
@@ -247,7 +247,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
         setSelectedSttProvider(parsed);
       } catch {
-        setSelectedSttProvider({ provider: "local-parakeet", variables: { MODEL: "mlx-community/parakeet-tdt-0.6b-v3" } });
+        setSelectedSttProvider({ provider: "local-fluidaudio", variables: {} });
       }
     }
 
@@ -332,6 +332,24 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         await trackAppStart(appVersion, "");
       } catch (error) {
         console.debug("Failed to track app start:", error);
+      }
+
+      // Platform gating: local-fluidaudio requires macOS Apple Silicon.
+      if (isMacOS()) {
+        try {
+          const status = await invoke<{
+            is_supported: boolean;
+          }>("stt_get_status");
+          if (!status.is_supported) {
+            onSetSelectedSttProvider({ provider: "groq", variables: {} });
+          }
+        } catch (error) {
+          console.debug("Failed to check STT status:", error);
+        }
+      } else {
+        if (selectedSttProvider.provider === "local-fluidaudio") {
+          onSetSelectedSttProvider({ provider: "groq", variables: {} });
+        }
       }
     };
     // Load data
