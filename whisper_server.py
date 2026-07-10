@@ -4,7 +4,7 @@ Minimal OpenAI-compatible Whisper transcription server.
 Uses faster-whisper to run any Hugging Face Whisper model locally.
 
 Usage:
-  python3 whisper_server.py --model openai/whisper-large-v3-turbo
+  python3 whisper_server.py
   python3 whisper_server.py --model openai/whisper-large-v3-turbo --port 8000
 
 Then point the app's STT provider to http://localhost:8000/v1/audio/transcriptions
@@ -49,8 +49,8 @@ async def health():
 
 def main():
     parser = argparse.ArgumentParser(description="Local Whisper transcription server")
-    parser.add_argument("--model", default="Systran/faster-whisper-large-v3",
-                        help="CTranslate2-format model ID (default: Systran/faster-whisper-large-v3)")
+    parser.add_argument("--model", default="openai/whisper-large-v3-turbo",
+                        help="CTranslate2-format model ID (default: openai/whisper-large-v3-turbo)")
     parser.add_argument("--port", type=int, default=8000, help="Port to listen on")
     parser.add_argument("--device", default="auto", help="Device: auto, cpu, cuda, or mps")
     parser.add_argument("--compute-type", default="default", help="Compute type: default, int8, float16, etc.")

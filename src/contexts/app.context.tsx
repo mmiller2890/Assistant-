@@ -112,7 +112,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [selectedSttProvider, setSelectedSttProvider] = useState<{
     provider: string;
     variables: Record<string, string>;
-  }>({ provider: "local-fluidaudio", variables: {} });
+  }>({ provider: isMacOS() ? "local-fluidaudio" : "local-whisper", variables: { MODEL: "openai/whisper-large-v3-turbo" } });
 
   const [screenshotConfiguration, setScreenshotConfiguration] =
     useState<ScreenshotConfig>({
@@ -247,7 +247,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
         setSelectedSttProvider(parsed);
       } catch {
-        setSelectedSttProvider({ provider: "local-fluidaudio", variables: {} });
+        setSelectedSttProvider({ provider: isMacOS() ? "local-fluidaudio" : "local-whisper", variables: { MODEL: "openai/whisper-large-v3-turbo" } });
       }
     }
 
