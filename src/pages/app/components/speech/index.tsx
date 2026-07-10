@@ -210,6 +210,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
           <div className="relative flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
             {isSttInitializing && <SttInitOverlay />}
 
+
             {/* Header - Mode Switcher + Actions */}
             <div className="flex-shrink-0 p-3 border-b border-border/50">
               <div className="flex items-center justify-between gap-2">

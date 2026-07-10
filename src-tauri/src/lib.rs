@@ -85,11 +85,7 @@ pub fn run() {
             speaker::get_input_devices,
             speaker::get_output_devices,
             stt::stt_init,
-            stt::stt_init_streaming,
             stt::stt_transcribe_speech,
-            stt::stt_streaming_start,
-            stt::stt_streaming_feed,
-            stt::stt_streaming_finish,
             stt::stt_get_status,
         ])
         .setup(|app| {

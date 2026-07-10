@@ -25,7 +25,6 @@ import curl2Json from "@bany/curl-to-json";
 import { TYPE_PROVIDER } from "@/types";
 import { Message } from "@/types/completion";
 
-// VAD Configuration interface matching Rust
 export interface VadConfig {
   enabled: boolean;
   hop_size: number;
@@ -40,22 +39,20 @@ export interface VadConfig {
   chunk_interval_ms?: number;
 }
 
-// OPTIMIZED VAD defaults - matches backend exactly for perfect performance
 const DEFAULT_VAD_CONFIG: VadConfig = {
   enabled: true,
   hop_size: 1024,
-  sensitivity_rms: 0.012, // Much less sensitive - only real speech
-  peak_threshold: 0.035, // Higher threshold - filters clicks/noise
-  silence_chunks: 45, // ~1.0s of required silence
-  min_speech_chunks: 7, // ~0.16s - captures short answers
-  pre_speech_chunks: 12, // ~0.27s - enough to catch word start
-  noise_gate_threshold: 0.003, // Stronger noise filtering
-  max_recording_duration_secs: 180, // 3 minutes default
+  sensitivity_rms: 0.012,
+  peak_threshold: 0.035,
+  silence_chunks: 45,
+  min_speech_chunks: 7,
+  pre_speech_chunks: 12,
+  noise_gate_threshold: 0.003,
+  max_recording_duration_secs: 180,
   emit_chunks: false,
   chunk_interval_ms: 1000,
 };
 
-// Chat message interface (reusing from useCompletion)
 interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
@@ -63,7 +60,6 @@ interface ChatMessage {
   timestamp: number;
 }
 
-// Conversation interface (reusing from useCompletion)
 export interface ChatConversation {
   id: string;
   title: string;
@@ -92,7 +88,7 @@ export function useSystemAudio() {
     useState<boolean>(false);
   const [showQuickActions, setShowQuickActions] = useState<boolean>(true);
   const [vadConfig, setVadConfig] = useState<VadConfig>(DEFAULT_VAD_CONFIG);
-  const [recordingProgress, setRecordingProgress] = useState<number>(0); // For continuous mode
+  const [recordingProgress, setRecordingProgress] = useState<number>(0);
   const [isContinuousMode, setIsContinuousMode] = useState<boolean>(false);
   const [isRecordingInContinuousMode, setIsRecordingInContinuousMode] =
     useState<boolean>(false);
@@ -105,7 +101,6 @@ export function useSystemAudio() {
     updatedAt: 0,
   });
 
-  // Context management states
   const [useSystemPrompt, setUseSystemPrompt] = useState<boolean>(true);
   const [contextContent, setContextContent] = useState<string>("");
 
@@ -129,7 +124,6 @@ export function useSystemAudio() {
   const batchProcessedForCurrentUtteranceRef = useRef<boolean>(false);
   const capturedSampleRateRef = useRef<number>(16000);
 
-  // Build the streaming WebSocket URL from the selected provider's config.
   function buildStreamingUrl(
     provider: TYPE_PROVIDER,
     selected: { provider: string; variables: Record<string, string> }
@@ -143,9 +137,6 @@ export function useSystemAudio() {
     return replaced.replace(/^http/, "ws");
   }
 
-  // Refs for values needed inside openStreamingSocket that change over time.
-  // Using refs keeps openStreamingSocket's identity stable so the speech
-  // event listeners don't tear down and re-register mid-speech.
   const capturingRef = useRef(capturing);
   const selectedSttProviderRef = useRef(selectedSttProvider);
   const allSttProvidersRef = useRef(allSttProviders);
@@ -161,7 +152,6 @@ export function useSystemAudio() {
   contextContentRef.current = contextContent;
   conversationMessagesRef.current = conversation.messages;
 
-  // Open a WebSocket connection to the streaming STT server.
   const openStreamingSocket = useCallback(() => {
     const currentSelected = selectedSttProviderRef.current;
     if (currentSelected.provider === "local-fluidaudio") return;
@@ -176,8 +166,6 @@ export function useSystemAudio() {
       if (wsRef.current.readyState === WebSocket.OPEN) return;
     }
 
-    // Reset per-utterance guards before attempting a new connection.
-    // This ensures a failed WebSocket still allows the batch STT fallback.
     streamingFinalizedRef.current = false;
     batchProcessedForCurrentUtteranceRef.current = false;
 
@@ -208,7 +196,6 @@ export function useSystemAudio() {
             setIsStreaming(false);
             streamingFinalizedRef.current = true;
 
-            // Ignore a late is_final if the batch path already processed this utterance.
             if (!batchProcessedForCurrentUtteranceRef.current && data.text && data.text.trim()) {
               const effectiveSystemPrompt = useSystemPromptRef.current
                 ? systemPromptRef.current || DEFAULT_SYSTEM_PROMPT
@@ -217,11 +204,7 @@ export function useSystemAudio() {
                 role: msg.role,
                 content: msg.content,
               }));
-              processWithAI(
-                data.text,
-                effectiveSystemPrompt,
-                previousMessages
-              );
+              processWithAI(data.text, effectiveSystemPrompt, previousMessages);
             }
             ws.close();
           } else if (data.text) {
@@ -248,7 +231,6 @@ export function useSystemAudio() {
     }
   }, []);
 
-  // Close the streaming WebSocket if open.
   const closeStreamingSocket = useCallback(() => {
     if (wsRef.current) {
       wsRef.current.close();
@@ -258,7 +240,6 @@ export function useSystemAudio() {
     setPartialTranscription("");
   }, []);
 
-  // Load context settings and VAD config from localStorage on mount
   useEffect(() => {
     const savedContext = safeLocalStorage.getItem(
       STORAGE_KEYS.SYSTEM_AUDIO_CONTEXT
@@ -273,7 +254,6 @@ export function useSystemAudio() {
       }
     }
 
-    // Load VAD config
     const savedVadConfig = safeLocalStorage.getItem("vad_config");
     if (savedVadConfig) {
       try {
@@ -285,7 +265,6 @@ export function useSystemAudio() {
     }
   }, []);
 
-  // Load quick actions from localStorage on mount
   useEffect(() => {
     const savedActions = safeLocalStorage.getItem(
       STORAGE_KEYS.SYSTEM_AUDIO_QUICK_ACTIONS
@@ -303,7 +282,6 @@ export function useSystemAudio() {
     }
   }, []);
 
-  // Handle continuous recording progress events AND error events
   useEffect(() => {
     let progressUnlisten: (() => void) | undefined;
     let startUnlisten: (() => void) | undefined;
@@ -314,33 +292,27 @@ export function useSystemAudio() {
 
     const setupContinuousListeners = async () => {
       try {
-        // Capture started — record sample rate for WebSocket handshake
         captureStartedUnlisten = await listen("capture-started", (event) => {
           capturedSampleRateRef.current = event.payload as number;
         });
 
-        // Progress updates (every second)
         progressUnlisten = await listen("recording-progress", (event) => {
           const seconds = event.payload as number;
           setRecordingProgress(seconds);
         });
 
-        // Recording started
         startUnlisten = await listen("continuous-recording-start", () => {
           setRecordingProgress(0);
           setIsRecordingInContinuousMode(true);
-          // Open streaming WebSocket for continuous mode
           openStreamingSocket();
         });
 
-        // Recording stopped
         stopUnlisten = await listen("continuous-recording-stopped", () => {
           setRecordingProgress(0);
           setIsRecordingInContinuousMode(false);
           closeStreamingSocket();
         });
 
-        // Audio encoding errors
         errorUnlisten = await listen("audio-encoding-error", (event) => {
           const errorMsg = event.payload as string;
           console.error("Audio encoding error:", errorMsg);
@@ -350,10 +322,7 @@ export function useSystemAudio() {
           setIsRecordingInContinuousMode(false);
         });
 
-        // Speech discarded (too short)
-        discardedUnlisten = await listen("speech-discarded", () => {
-          // Don't show error - this is expected behavior
-        });
+        discardedUnlisten = await listen("speech-discarded", () => {});
       } catch (err) {
         console.error("Failed to setup continuous recording listeners:", err);
       }
@@ -371,17 +340,13 @@ export function useSystemAudio() {
     };
   }, []);
 
-  // Handle speech events: speech-start (open WS), speech-chunk (forward audio),
-  // speech-detected (final transcription or batch fallback)
   useEffect(() => {
     let speechUnlisten: (() => void) | undefined;
     let speechStartUnlisten: (() => void) | undefined;
     let speechChunkUnlisten: (() => void) | undefined;
-    let sttFinalUnlisten: (() => void) | undefined;
 
     const setupEventListener = async () => {
       try {
-        // Speech start: open WebSocket for VAD streaming mode (only for non-local providers)
         speechStartUnlisten = await listen("speech-start", () => {
           if (selectedSttProviderRef.current.provider === "local-fluidaudio") {
             return;
@@ -389,13 +354,11 @@ export function useSystemAudio() {
           openStreamingSocket();
         });
 
-        // Speech chunk: forward incremental audio to the WebSocket
         speechChunkUnlisten = await listen("speech-chunk", (event) => {
           const base64Audio = event.payload as string;
           if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
             return;
           }
-          // Decode base64 to raw f32 bytes and send as binary
           const binaryString = atob(base64Audio);
           const bytes = new Uint8Array(binaryString.length);
           for (let i = 0; i < binaryString.length; i++) {
@@ -404,48 +367,24 @@ export function useSystemAudio() {
           wsRef.current.send(bytes.buffer);
         });
 
-        // Local STT final result from Rust streaming/batch path
-        sttFinalUnlisten = await listen("stt-final", (event) => {
-          const text = (event.payload as string) || "";
-          setIsStreaming(false);
-          setPartialTranscription("");
-          setLastTranscription(text);
-          streamingFinalizedRef.current = true;
-
-          // Ignore a late stt-final if the batch path already processed this utterance.
-          if (!batchProcessedForCurrentUtteranceRef.current && text.trim()) {
-            const effectiveSystemPrompt = useSystemPromptRef.current
-              ? systemPromptRef.current || DEFAULT_SYSTEM_PROMPT
-              : contextContentRef.current || DEFAULT_SYSTEM_PROMPT;
-            const previousMessages = conversationMessagesRef.current.map((msg) => ({
-              role: msg.role,
-              content: msg.content,
-            }));
-            processWithAI(text, effectiveSystemPrompt, previousMessages);
-          }
-        });
-
         speechUnlisten = await listen("speech-detected", async (event) => {
           try {
             if (!capturingRef.current) return;
 
-            // Double-trigger guard: if streaming already produced final text,
-            // skip the batch STT flow — just cleanup.
             if (streamingFinalizedRef.current) {
               streamingFinalizedRef.current = false;
               closeStreamingSocket();
               return;
             }
 
-            // Close any lingering streaming socket before batch fallback
             closeStreamingSocket();
-
-            // Mark that we're processing this utterance via batch STT,
-            // so a late streaming is_final doesn't trigger duplicate AI processing.
             batchProcessedForCurrentUtteranceRef.current = true;
 
             const base64Audio = event.payload as string;
-            // Convert to blob
+            if (!base64Audio || base64Audio.length < 100) {
+              return;
+            }
+
             const binaryString = atob(base64Audio);
             const bytes = new Uint8Array(binaryString.length);
             for (let i = 0; i < binaryString.length; i++) {
@@ -472,8 +411,6 @@ export function useSystemAudio() {
 
             setIsProcessing(true);
 
-            // Add timeout wrapper for STT request (30 seconds) with abort
-            // so the underlying request is actually cancelled on timeout.
             const sttAbortController = new AbortController();
             const timeoutId = setTimeout(() => {
               sttAbortController.abort();
@@ -537,16 +474,12 @@ export function useSystemAudio() {
       if (speechUnlisten) speechUnlisten();
       if (speechStartUnlisten) speechStartUnlisten();
       if (speechChunkUnlisten) speechChunkUnlisten();
-      if (sttFinalUnlisten) sttFinalUnlisten();
-      // Kill any open streaming socket when listeners tear down (e.g., provider switch
-      // or unmount) so the old provider's endpoint isn't reused for the next utterance.
       closeStreamingSocket();
       streamingFinalizedRef.current = false;
       batchProcessedForCurrentUtteranceRef.current = false;
     };
   }, [openStreamingSocket, closeStreamingSocket]);
 
-  // Context management functions
   const saveContextSettings = useCallback(
     (usePrompt: boolean, content: string) => {
       try {
@@ -581,7 +514,6 @@ export function useSystemAudio() {
     [useSystemPrompt, saveContextSettings]
   );
 
-  // Quick actions management
   const saveQuickActions = useCallback((actions: string[]) => {
     try {
       safeLocalStorage.setItem(
@@ -620,12 +552,10 @@ export function useSystemAudio() {
       ? systemPrompt || DEFAULT_SYSTEM_PROMPT
       : contextContent || DEFAULT_SYSTEM_PROMPT;
 
-    // Include the most recent transcription in conversation history if it exists
     let updatedMessages = [...conversation.messages];
 
     if (lastTranscription && lastTranscription.trim()) {
       const lastMessage = updatedMessages[updatedMessages.length - 1];
-      // Only add if it's not already the last message
       if (!lastMessage || lastMessage.content !== lastTranscription) {
         const timestamp = Date.now();
         const userMessage = {
@@ -636,7 +566,6 @@ export function useSystemAudio() {
         };
         updatedMessages.push(userMessage);
 
-        // Update conversation state with the latest transcription
         setConversation((prev) => ({
           ...prev,
           messages: [userMessage, ...prev.messages],
@@ -653,7 +582,6 @@ export function useSystemAudio() {
     await processWithAI(action, effectiveSystemPrompt, previousMessages);
   };
 
-  // Start continuous recording manually
   const startContinuousRecording = useCallback(async () => {
     try {
       setRecordingProgress(0);
@@ -668,7 +596,6 @@ export function useSystemAudio() {
         (p) => p.id === selectedSttProvider.provider
       );
 
-      // Start a new continuous recording session
       await invoke<string>("start_system_audio_capture", {
         vadConfig: vadConfig,
         deviceId: deviceId,
@@ -686,15 +613,12 @@ export function useSystemAudio() {
     selectedSttProvider.provider,
   ]);
 
-  // Ignore current recording (stop without transcription)
   const ignoreContinuousRecording = useCallback(async () => {
     try {
       if (!isContinuousMode || !isRecordingInContinuousMode) return;
 
-      // Stop the capture without processing
       await invoke<string>("stop_system_audio_capture");
 
-      // Reset states
       setRecordingProgress(0);
       setIsProcessing(false);
       setIsRecordingInContinuousMode(false);
@@ -704,7 +628,6 @@ export function useSystemAudio() {
     }
   }, [isContinuousMode, isRecordingInContinuousMode]);
 
-  // AI Processing function
   const processWithAI = useCallback(
     async (
       transcription: string,
@@ -780,7 +703,6 @@ export function useSystemAudio() {
         setError("Failed to get AI response");
       } finally {
         setIsAIProcessing(false);
-        // No auto-restart - user manually controls when to start next recording
       }
     },
     [selectedAIProvider, allAiProviders, conversation.messages]
@@ -790,28 +712,23 @@ export function useSystemAudio() {
     try {
       setError("");
 
-      // Lazy-init local STT on first capture attempt.
       if (selectedSttProvider.provider === "local-fluidaudio") {
         if (!isSupported) {
           onSetSelectedSttProvider({ provider: "groq", variables: {} });
           setError("Local STT requires macOS Apple Silicon — switched to cloud STT");
-        } else if (!asrReady && !isSttInitializing) {
+          return;
+        }
+
+        const status = await invoke<{ asr_ready: boolean }>("stt_get_status");
+
+        if (!status.asr_ready && !isSttInitializing) {
           await initStt();
-          // asrReady from the hook state is updated asynchronously via the stt-ready
-          // event, so check status directly to avoid a first-run race.
-          const status = await invoke<{ asr_ready: boolean; streaming_ready: boolean }>("stt_get_status");
-          if (!status.asr_ready) {
-            setError("Failed to initialize local speech model. Please try again.");
-            return;
-          }
-          // Pre-initialize streaming ASR so the VAD loop never blocks on first speech.
-          if (!status.streaming_ready) {
-            try {
-              await invoke("stt_init_streaming");
-            } catch (err) {
-              console.error("Failed to initialize streaming ASR:", err);
-            }
-          }
+        }
+
+        const statusAfter = await invoke<{ asr_ready: boolean }>("stt_get_status");
+        if (!statusAfter.asr_ready) {
+          setError("Failed to initialize local speech model. Please try again.");
+          return;
         }
       }
 
@@ -824,7 +741,6 @@ export function useSystemAudio() {
 
       const isContinuous = !vadConfig.enabled;
 
-      // Set up conversation
       const conversationId = generateConversationId("sysaudio");
       setConversation({
         id: conversationId,
@@ -840,14 +756,11 @@ export function useSystemAudio() {
       setIsContinuousMode(isContinuous);
       setRecordingProgress(0);
 
-      // If continuous mode
       if (isContinuous) {
         setIsRecordingInContinuousMode(false);
         return;
       }
 
-      // VAD mode: Start recording immediately
-      // Stop any existing capture
       await invoke<string>("stop_system_audio_capture");
 
       const deviceId =
@@ -859,7 +772,6 @@ export function useSystemAudio() {
         (p) => p.id === selectedSttProvider.provider
       );
 
-      // Start capture with VAD config
       await invoke<string>("start_system_audio_capture", {
         vadConfig: vadConfig,
         deviceId: deviceId,
@@ -885,19 +797,15 @@ export function useSystemAudio() {
 
   const stopCapture = useCallback(async () => {
     try {
-      // Abort any ongoing AI requests
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
       }
 
-      // Close streaming WebSocket if open
       closeStreamingSocket();
 
-      // Stop the audio capture
       await invoke<string>("stop_system_audio_capture");
 
-      // Reset ALL states
       setCapturing(false);
       setIsProcessing(false);
       setIsAIProcessing(false);
@@ -912,8 +820,6 @@ export function useSystemAudio() {
       setIsPopoverOpen(false);
       streamingFinalizedRef.current = false;
       batchProcessedForCurrentUtteranceRef.current = false;
-      // Capturing ref is updated by the synchronous assignment above, but
-      // ensure it stays false if stopCapture is called multiple times.
       capturingRef.current = false;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -922,7 +828,6 @@ export function useSystemAudio() {
     }
   }, []);
 
-  // Manual stop for continuous recording
   const manualStopAndSend = useCallback(async () => {
     try {
       if (!isContinuousMode) {
@@ -930,15 +835,13 @@ export function useSystemAudio() {
         return;
       }
 
-      // Show processing state immediately
       setIsProcessing(true);
 
-      // Trigger manual stop event
       await invoke("manual_stop_continuous");
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       setError(`Failed to manually stop: ${errorMessage}`);
-      setIsProcessing(false); // Clear processing state on error
+      setIsProcessing(false);
       console.error("Manual stop error:", err);
     }
   }, [isContinuousMode]);
@@ -949,7 +852,6 @@ export function useSystemAudio() {
         await invoke("request_system_audio_access");
       }
 
-      // Delay to give the user time to grant permissions in the system dialog.
       await new Promise((resolve) => setTimeout(resolve, 3000));
 
       const hasAccess = await invoke<boolean>("check_system_audio_access");
@@ -1005,14 +907,11 @@ export function useSystemAudio() {
     };
   }, []);
 
-  // Debounced save to prevent race conditions and improve performance
   useEffect(() => {
-    // Clear any pending save
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
 
-    // Only debounce if there are messages to save
     if (
       !conversation.id ||
       conversation.updatedAt === 0 ||
@@ -1021,9 +920,7 @@ export function useSystemAudio() {
       return;
     }
 
-    // Debounce saves (only save 500ms after last change)
     saveTimeoutRef.current = setTimeout(async () => {
-      // Don't save if already saving (prevent concurrent saves)
       if (isSavingRef.current) {
         return;
       }
@@ -1038,7 +935,6 @@ export function useSystemAudio() {
       }
     }, CONVERSATION_SAVE_DEBOUNCE_MS);
 
-    // Cleanup on unmount or dependency change
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
@@ -1069,7 +965,6 @@ export function useSystemAudio() {
     setUseSystemPrompt(true);
   }, []);
 
-  // Update VAD configuration
   const updateVadConfiguration = useCallback(async (config: VadConfig) => {
     try {
       setVadConfig(config);
@@ -1090,7 +985,6 @@ export function useSystemAudio() {
     }
   }, [vadConfig.enabled, capturing]);
 
-  // Keyboard arrow key support for scrolling (local shortcut)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isPopoverOpen) return;
@@ -1101,7 +995,7 @@ export function useSystemAudio() {
 
       if (!scrollElement) return;
 
-      const scrollAmount = 100; // pixels to scroll
+      const scrollAmount = 100;
 
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -1116,13 +1010,11 @@ export function useSystemAudio() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isPopoverOpen]);
 
-  // Keyboard shortcuts for continuous mode recording (local shortcuts)
   useEffect(() => {
     const handleRecordingShortcuts = (e: KeyboardEvent) => {
       if (!isPopoverOpen || !isContinuousMode) return;
       if (isProcessing || isAIProcessing) return;
 
-      // Enter: Start recording (when not recording) or Stop & Send (when recording)
       if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         if (!isRecordingInContinuousMode) {
@@ -1132,13 +1024,11 @@ export function useSystemAudio() {
         }
       }
 
-      // Escape: Ignore recording (when recording)
       if (e.key === "Escape" && isRecordingInContinuousMode) {
         e.preventDefault();
         ignoreContinuousRecording();
       }
 
-      // Space: Start recording (when not recording) - only if not typing in input
       if (
         e.key === " " &&
         !isRecordingInContinuousMode &&
@@ -1182,18 +1072,14 @@ export function useSystemAudio() {
     handleSetup,
     isPopoverOpen,
     setIsPopoverOpen,
-    // Conversation management
     conversation,
     setConversation,
-    // AI processing
     processWithAI,
-    // Context management
     useSystemPrompt,
     setUseSystemPrompt: updateUseSystemPrompt,
     contextContent,
     setContextContent: updateContextContent,
     startNewConversation,
-    // Window resize
     resizeWindow,
     quickActions,
     addQuickAction,
@@ -1203,17 +1089,14 @@ export function useSystemAudio() {
     showQuickActions,
     setShowQuickActions,
     handleQuickActionClick,
-    // VAD configuration
     vadConfig,
     updateVadConfiguration,
-    // Continuous recording
     isContinuousMode,
     isRecordingInContinuousMode,
     recordingProgress,
     manualStopAndSend,
     startContinuousRecording,
     ignoreContinuousRecording,
-    // Scroll area ref for keyboard navigation
     scrollAreaRef,
   };
 }

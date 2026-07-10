@@ -38,11 +38,24 @@ export async function blobToBase64(blob: Blob): Promise<string> {
  * this will reject.
  */
 export async function wavBase64ToF32Samples(base64: string): Promise<Float32Array> {
-  const binaryString = atob(base64);
+  const rawBase64 = base64.includes(",") ? base64.split(",")[1] : base64;
+  if (!rawBase64 || rawBase64.length < 100) {
+    throw new Error(`Invalid base64 WAV: length ${rawBase64?.length ?? 0}`);
+  }
+
+  const binaryString = atob(rawBase64);
   const bytes = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
+
+  // Verify RIFF/WAVE header before handing to Web Audio API.
+  const header = String.fromCharCode(...bytes.slice(0, 4));
+  const format = String.fromCharCode(...bytes.slice(8, 12));
+  if (header !== "RIFF" || format !== "WAVE") {
+    throw new Error(`Invalid WAV header: ${header}/${format}`);
+  }
+
   const blob = new Blob([bytes], { type: "audio/wav" });
   const arrayBuffer = await blob.arrayBuffer();
 

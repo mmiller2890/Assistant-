@@ -176,6 +176,9 @@ pub fn create_dashboard_window<R: Runtime>(
         .content_protected(true)
         .visible(false);
 
+    #[cfg(debug_assertions)]
+    let base_builder = base_builder.devtools(true);
+
     let window = base_builder.build()?;
 
     // Set up close event handler - hide window instead of destroying it

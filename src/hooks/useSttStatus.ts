@@ -4,7 +4,6 @@ import { listen } from "@tauri-apps/api/event";
 
 export interface SttStatus {
   asrReady: boolean;
-  streamingReady: boolean;
   isSupported: boolean;
   isInitializing: boolean;
   error: string | null;
@@ -13,7 +12,6 @@ export interface SttStatus {
 export function useSttStatus() {
   const [status, setStatus] = useState<SttStatus>({
     asrReady: false,
-    streamingReady: false,
     isSupported: false,
     isInitializing: false,
     error: null,
@@ -23,13 +21,11 @@ export function useSttStatus() {
     try {
       const result = await invoke<{
         asr_ready: boolean;
-        streaming_ready: boolean;
         is_supported: boolean;
       }>("stt_get_status");
       setStatus((prev) => ({
         ...prev,
         asrReady: result.asr_ready,
-        streamingReady: result.streaming_ready,
         isSupported: result.is_supported,
         error: null,
       }));
@@ -66,7 +62,6 @@ export function useSttStatus() {
   useEffect(() => {
     refresh();
     let unlistenReady: (() => void) | undefined;
-    let unlistenStreamingReady: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
 
     const setup = async () => {
@@ -74,14 +69,6 @@ export function useSttStatus() {
         setStatus((prev) => ({
           ...prev,
           asrReady: true,
-          isInitializing: false,
-          error: null,
-        }));
-      });
-      unlistenStreamingReady = await listen("stt-streaming-ready", () => {
-        setStatus((prev) => ({
-          ...prev,
-          streamingReady: true,
           isInitializing: false,
           error: null,
         }));
@@ -99,7 +86,6 @@ export function useSttStatus() {
 
     return () => {
       if (unlistenReady) unlistenReady();
-      if (unlistenStreamingReady) unlistenStreamingReady();
       if (unlistenError) unlistenError();
     };
   }, [refresh]);
