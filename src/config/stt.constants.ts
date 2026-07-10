@@ -14,8 +14,7 @@ export const SPEECH_TO_TEXT_PROVIDERS = [
     name: "Local FluidAudio (macOS Apple Silicon, CoreML)",
     curl: "",
     responseContentPath: "text",
-    streaming: true,
-    streamingUrl: "",
+    streaming: false,
     platform: "macos-apple-silicon",
   },
   {

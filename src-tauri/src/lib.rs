@@ -20,7 +20,6 @@ pub struct AudioState {
     stream_task: Arc<Mutex<Option<JoinHandle<()>>>>,
     vad_config: Arc<Mutex<VadConfig>>,
     is_capturing: Arc<Mutex<bool>>,
-    selected_stt_provider: Arc<Mutex<Option<String>>>,
 }
 
 #[tauri::command]

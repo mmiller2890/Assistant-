@@ -60,11 +60,9 @@ pub async fn start_system_audio_capture(
     vad_config: Option<VadConfig>,
     device_id: Option<String>,
     streaming: Option<bool>,
-    selected_stt_provider: Option<String>,
 ) -> Result<(), String> {
     let state = app.state::<crate::AudioState>();
 
-    // Check if already capturing (atomic check)
     {
         let guard = state
             .stream_task
@@ -77,7 +75,6 @@ pub async fn start_system_audio_capture(
         }
     }
 
-    // Update VAD config if provided, auto-enabling chunk emission for streaming
     if let Some(mut config) = vad_config {
         let stream_enabled = streaming.unwrap_or(false);
         if stream_enabled {
@@ -98,7 +95,6 @@ pub async fn start_system_audio_capture(
     let stream = input.stream();
     let sr = stream.sample_rate();
 
-    // Validate sample rate
     if !(8000..=96000).contains(&sr) {
         error!("Invalid sample rate: {}", sr);
         return Err(format!(
@@ -114,29 +110,19 @@ pub async fn start_system_audio_capture(
         .map_err(|e| format!("Failed to read VAD config: {}", e))?
         .clone();
 
-    // Store selected provider so the capture task can branch between local-fluidaudio
-    // and custom streaming providers.
-    *state
-        .selected_stt_provider
-        .lock()
-        .map_err(|e| format!("Failed to store selected STT provider: {}", e))? =
-        selected_stt_provider.clone();
-
-    // Mark as capturing BEFORE spawning task
     *state
         .is_capturing
         .lock()
         .map_err(|e| format!("Failed to set capturing state: {}", e))? = true;
 
-    // Emit capture started event
     let _ = app_clone.emit("capture-started", sr);
 
     let state_clone = app.state::<crate::AudioState>();
     let task = tokio::spawn(async move {
         if vad_config.enabled {
-            run_vad_capture(app_clone.clone(), stream, sr, vad_config, selected_stt_provider).await;
+            run_vad_capture(app_clone.clone(), stream, sr, vad_config).await;
         } else {
-            run_continuous_capture(app_clone.clone(), stream, sr, vad_config, selected_stt_provider).await;
+            run_continuous_capture(app_clone.clone(), stream, sr, vad_config).await;
         }
 
         let state = app_clone.state::<crate::AudioState>();
@@ -161,7 +147,6 @@ async fn run_vad_capture(
     stream: impl StreamExt<Item = f32> + Unpin,
     sr: u32,
     config: VadConfig,
-    _selected_stt_provider: Option<String>,
 ) {
     let mut stream = stream;
     let mut buffer: VecDeque<f32> = VecDeque::new();
@@ -333,7 +318,6 @@ async fn run_continuous_capture(
     stream: impl StreamExt<Item = f32> + Unpin,
     sr: u32,
     config: VadConfig,
-    _selected_stt_provider: Option<String>,
 ) {
     let mut stream = stream;
     let max_samples = (sr as u64 * config.max_recording_duration_secs) as usize;

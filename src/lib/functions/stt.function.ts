@@ -37,7 +37,6 @@ export async function fetchSTT(params: STTParams): Promise<string> {
       const file = audio as File;
       if (file.size === 0) throw new Error("Audio file is empty");
       const wavBase64 = await blobToBase64(audio);
-      console.log("[STT-FE] local-fluidaudio batch base64 length:", wavBase64.length);
       const samples = await wavBase64ToF32Samples(wavBase64);
       const result = await invoke<{ text: string }>("stt_transcribe_speech", {
         samples: Array.from(samples),

@@ -600,7 +600,6 @@ export function useSystemAudio() {
         vadConfig: vadConfig,
         deviceId: deviceId,
         streaming: providerConfig?.streaming === true,
-        selectedSttProvider: selectedSttProvider.provider,
       });
     } catch (err) {
       console.error("Failed to start continuous recording:", err);
@@ -776,7 +775,6 @@ export function useSystemAudio() {
         vadConfig: vadConfig,
         deviceId: deviceId,
         streaming: providerConfig?.streaming === true,
-        selectedSttProvider: selectedSttProvider.provider,
       });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
