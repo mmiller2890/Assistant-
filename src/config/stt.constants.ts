@@ -10,14 +10,6 @@ export const SPEECH_TO_TEXT_PROVIDERS = [
     streamingUrl: "ws://localhost:8001/v1/audio/stream",
   },
   {
-    id: "local-fluidaudio",
-    name: "Local FluidAudio (macOS Apple Silicon, CoreML)",
-    curl: "",
-    responseContentPath: "text",
-    streaming: false,
-    platform: "macos-apple-silicon",
-  },
-  {
     id: "local-nemotron",
     name: "Local Nemotron ASR (MLX, Apple Silicon)",
     curl: `curl -X POST "http://localhost:8001/v1/audio/transcriptions" \\

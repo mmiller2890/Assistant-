@@ -72,7 +72,7 @@ export const useMenuItems = () => {
     {
       icon: BugIcon,
       label: "Report a bug",
-      href: "https://github.com/mmiller2890/Assistant-/issues/new",
+      href: "",
     },
     {
       icon: PowerIcon,

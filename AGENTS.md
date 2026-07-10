@@ -7,11 +7,8 @@ Assistant is a local-only fork of an open-source Pluely project — a Tauri 2 + 
 - **Frontend:** React 19, TypeScript 5.8, Tailwind CSS 4, Vite 7
 - **Desktop:** Tauri 2 (Rust backend)
 - **Local AI:** Ollama (`localhost:11434`)
-- **Local STT:** fluidaudio-rs in-process ASR on macOS Apple Silicon (default), with fallback to faster-whisper server (`localhost:8000`) or mlx-audio ASR (`localhost:8001`) as advanced options
-- **Language:** TypeScript (frontend), Rust (backend), Python (advanced local STT servers)
-
-### Known local STT limitation
-- Parakeet streaming via fluidaudio-rs does **not** expose live partial transcription; text is delivered only after the utterance ends (via the `stt-final` event). Custom streaming providers still show partials via WebSocket.
+- **Local STT:** faster-whisper server (`localhost:8000`) or mlx-audio ASR (`localhost:8001`, default Parakeet TDT v3; Nemotron also available)
+- **Language:** TypeScript (frontend), Rust (backend), Python (local STT servers)
 
 ## Commands
 
@@ -79,13 +76,11 @@ src-tauri/
 - Browser `fetch` is used only for `https://` URLs.
 - See `src/lib/functions/stt.function.ts` and `ai-response.function.ts` line: `url?.startsWith("https") ? fetch : tauriFetch`.
 
-### Local STT
-- **Default:** fluidaudio-rs in-process ASR on macOS 14+ Apple Silicon. No Python server required.
-- **Advanced local STT servers:**
-  - `whisper_server.py` — faster-whisper server on port 8000 (venv: `.whisper-venv`)
-  - `mlx_asr_server.py` — mlx-audio ASR server on port 8001 (venv: `.mlx-asr-venv`); defaults to Parakeet TDT v3, supports Nemotron via `--model`
-- Both advanced servers expose `POST /v1/audio/transcriptions` (OpenAI-compatible).
-- Tauri capabilities in `src-tauri/capabilities/` whitelist `localhost:8000` and `8001` for advanced servers.
+### Local STT Servers
+- `whisper_server.py` — faster-whisper server on port 8000 (venv: `.whisper-venv`)
+- `mlx_asr_server.py` — mlx-audio ASR server on port 8001 (venv: `.mlx-asr-venv`); defaults to Parakeet TDT v3, supports Nemotron via `--model`
+- Both expose `POST /v1/audio/transcriptions` (OpenAI-compatible).
+- Tauri capabilities in `src-tauri/capabilities/` whitelist `localhost:8000` and `8001`.
 
 ## Conventions
 - No comments in code unless explicitly requested.

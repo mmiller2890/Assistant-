@@ -7,7 +7,6 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, WebviewWindow};
 use tokio::task::JoinHandle;
 mod speaker;
-mod stt;
 use capture::CaptureState;
 use speaker::VadConfig;
 
@@ -36,7 +35,6 @@ pub fn run() {
                 .build(),
         )
         .manage(AudioState::default())
-        .manage(stt::SttState::default())
         .manage(CaptureState::default())
         .manage(shortcuts::WindowVisibility {
             is_hidden: Mutex::new(false),
@@ -83,9 +81,6 @@ pub fn run() {
             speaker::get_audio_sample_rate,
             speaker::get_input_devices,
             speaker::get_output_devices,
-            stt::stt_init,
-            stt::stt_transcribe_speech,
-            stt::stt_get_status,
         ])
         .setup(|app| {
             // Setup main window positioning

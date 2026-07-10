@@ -63,6 +63,7 @@ pub async fn start_system_audio_capture(
 ) -> Result<(), String> {
     let state = app.state::<crate::AudioState>();
 
+    // Check if already capturing (atomic check)
     {
         let guard = state
             .stream_task
@@ -75,6 +76,7 @@ pub async fn start_system_audio_capture(
         }
     }
 
+    // Update VAD config if provided, auto-enabling chunk emission for streaming
     if let Some(mut config) = vad_config {
         let stream_enabled = streaming.unwrap_or(false);
         if stream_enabled {
@@ -95,6 +97,7 @@ pub async fn start_system_audio_capture(
     let stream = input.stream();
     let sr = stream.sample_rate();
 
+    // Validate sample rate
     if !(8000..=96000).contains(&sr) {
         error!("Invalid sample rate: {}", sr);
         return Err(format!(
@@ -110,11 +113,13 @@ pub async fn start_system_audio_capture(
         .map_err(|e| format!("Failed to read VAD config: {}", e))?
         .clone();
 
+    // Mark as capturing BEFORE spawning task
     *state
         .is_capturing
         .lock()
         .map_err(|e| format!("Failed to set capturing state: {}", e))? = true;
 
+    // Emit capture started event
     let _ = app_clone.emit("capture-started", sr);
 
     let state_clone = app.state::<crate::AudioState>();
@@ -158,10 +163,10 @@ async fn run_vad_capture(
     let mut speech_chunks = 0;
     let max_samples = sr as usize * 30; // 30s safety cap per utterance
 
-    let chunk_interval = Duration::from_millis(config.chunk_interval_ms);
-
+    // Streaming chunk emission state
     let mut last_emitted_len: usize = 0;
     let mut last_chunk_time: Option<Instant> = None;
+    let chunk_interval = Duration::from_millis(config.chunk_interval_ms);
 
     while let Some(sample) = stream.next().await {
         buffer.push_back(sample);
@@ -199,11 +204,14 @@ async fn run_vad_capture(
                 speech_buffer.extend_from_slice(&mono);
                 silence_chunks = 0; // Reset silence counter on any speech
 
+                // Emit incremental streaming chunks while speaking
                 if config.emit_chunks {
-                    // Emit incremental streaming chunks for custom providers
                     if let Some(t) = last_chunk_time {
-                        if t.elapsed() >= chunk_interval && speech_buffer.len() > last_emitted_len {
-                            let new_samples = &speech_buffer[last_emitted_len..];
+                        if t.elapsed() >= chunk_interval
+                            && speech_buffer.len() > last_emitted_len
+                        {
+                            let new_samples =
+                                &speech_buffer[last_emitted_len..];
                             let cleaned = apply_noise_gate(
                                 new_samples,
                                 config.noise_gate_threshold,
@@ -221,19 +229,14 @@ async fn run_vad_capture(
                 // Safety cap: force emit if exceeds 30s
                 if speech_buffer.len() > max_samples {
                     let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
-                    if normalized_buffer.is_empty() {
-                        let _ = app.emit("audio-encoding-error", "Captured audio was empty after normalization");
-                    } else if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
+                    if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
+                        // let duration = speech_buffer.len() as f32 / sr as f32;
                         let _ = app.emit("speech-detected", b64);
-                    } else {
-                        error!("Failed to encode speech to WAV");
-                        let _ = app.emit("audio-encoding-error", "Failed to encode speech");
                     }
                     speech_buffer.clear();
                     in_speech = false;
                     speech_chunks = 0;
                     last_emitted_len = 0;
-                    last_chunk_time = None;
                 }
             } else {
                 // Silence detected
@@ -245,6 +248,7 @@ async fn run_vad_capture(
 
                     // Check if silence duration exceeds threshold
                     if silence_chunks >= config.silence_chunks {
+                        // Verify minimum speech duration
                         if speech_chunks >= config.min_speech_chunks && !speech_buffer.is_empty() {
                             // Trim trailing silence (keep ~0.15s for natural ending)
                             let silence_duration_samples = silence_chunks * config.hop_size;
@@ -256,10 +260,10 @@ async fn run_vad_capture(
                                 speech_buffer.truncate(speech_buffer.len() - trim_amount);
                             }
 
+                            // Emit complete speech segment
                             let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
-                            if normalized_buffer.is_empty() {
-                                let _ = app.emit("audio-encoding-error", "Captured audio was empty after normalization");
-                            } else if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
+                            if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
+                                // let duration = speech_buffer.len() as f32 / sr as f32;
                                 let _ = app.emit("speech-detected", b64);
                             } else {
                                 error!("Failed to encode speech to WAV");
@@ -278,7 +282,6 @@ async fn run_vad_capture(
                         silence_chunks = 0;
                         speech_chunks = 0;
                         last_emitted_len = 0;
-                        last_chunk_time = None;
                     }
                 } else {
                     // Not in speech yet - maintain rolling pre-speech buffer
@@ -295,19 +298,6 @@ async fn run_vad_capture(
                     }
                 }
             }
-        }
-    }
-
-    // Emit any remaining audio when the stream ends.
-    if in_speech && !speech_buffer.is_empty() {
-        let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
-        if normalized_buffer.is_empty() {
-            let _ = app.emit("audio-encoding-error", "Captured audio was empty after normalization");
-        } else if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
-            let _ = app.emit("speech-detected", b64);
-        } else {
-            error!("Failed to encode trailing speech to WAV");
-            let _ = app.emit("audio-encoding-error", "Failed to encode speech");
         }
     }
 }

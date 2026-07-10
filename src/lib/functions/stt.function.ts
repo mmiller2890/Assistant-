@@ -2,10 +2,8 @@ import {
   deepVariableReplacer,
   getByPath,
   blobToBase64,
-  wavBase64ToF32Samples,
 } from "./common.function";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { invoke } from "@tauri-apps/api/core";
 
 import { TYPE_PROVIDER } from "@/types";
 import curl2Json from "@bany/curl-to-json";
@@ -32,17 +30,6 @@ export async function fetchSTT(params: STTParams): Promise<string> {
     if (!provider) throw new Error("Provider not provided");
     if (!selectedProvider) throw new Error("Selected provider not provided");
     if (!audio) throw new Error("Audio file is required");
-
-    if (provider.id === "local-fluidaudio") {
-      const file = audio as File;
-      if (file.size === 0) throw new Error("Audio file is empty");
-      const wavBase64 = await blobToBase64(audio);
-      const samples = await wavBase64ToF32Samples(wavBase64);
-      const result = await invoke<{ text: string }>("stt_transcribe_speech", {
-        samples: Array.from(samples),
-      });
-      return result.text.trim();
-    }
 
     let curlJson: any;
     try {

@@ -133,7 +133,6 @@ dependencies = [
  "base64 0.22.1",
  "cidre",
  "cpal",
- "fluidaudio-rs",
  "futures-util",
  "hound",
  "image",
@@ -1538,15 +1537,6 @@ checksum = "4a3d7db9596fecd151c5f638c0ee5d5bd487b6e0ea232e5dc96d5250f6f94b1d"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
-]
-
-[[package]]
-name = "fluidaudio-rs"
-version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6181071acbec602782db378d0677cccfa48c60bc8d759524c4bfe57188a234dc"
-dependencies = [
- "thiserror 1.0.69",
 ]
 
 [[package]]
