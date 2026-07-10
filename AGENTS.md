@@ -7,11 +7,11 @@ Assistant is a local-only fork of an open-source Pluely project — a Tauri 2 + 
 - **Frontend:** React 19, TypeScript 5.8, Tailwind CSS 4, Vite 7
 - **Desktop:** Tauri 2 (Rust backend)
 - **Local AI:** Ollama (`localhost:11434`)
-- **Local STT:** fluidaudio-rs in-process ASR on macOS Apple Silicon (default), with fallback to faster-whisper server (`localhost:8000`) or mlx-audio ASR (`localhost:8001`) as advanced options
+- **Local STT:** fluidaudio-rs in-process ASR on macOS Apple Silicon (default), with optional advanced servers: faster-whisper (`localhost:8000`) or mlx-audio ASR (`localhost:8001`, includes Parakeet TDT v3 and Nemotron)
 - **Language:** TypeScript (frontend), Rust (backend), Python (advanced local STT servers)
 
 ### Known local STT limitation
-- Parakeet streaming via fluidaudio-rs does **not** expose live partial transcription; text is delivered only after the utterance ends (via the `stt-final` event). Custom streaming providers still show partials via WebSocket.
+- `local-fluidaudio` (fluidaudio-rs) uses a batch transcription path. VAD captures the utterance as a WAV, then `fetchSTT()` calls the Rust `stt_transcribe_speech` command to get the final text. It does **not** expose live partial transcriptions. For live partials, use a streaming provider such as `local-parakeet` (requires the mlx-audio server) or a custom WebSocket streaming STT provider.
 
 ## Commands
 
@@ -52,10 +52,10 @@ src/
   routes/             # React Router config
   types/              # TypeScript type definitions
 src-tauri/
-  src/                # Rust source (window mgmt, capture, shortcuts, speaker, API)
+  src/                # Rust source (window mgmt, capture, shortcuts, speaker, STT)
   capabilities/        # Tauri permissions (HTTP scopes, plugin permissions)
   tauri.conf.json     # Tauri config (productName, windows, updater, plugins)
-  Cargo.toml          # Rust dependencies
+  Cargo.toml          # Rust dependencies (includes fluidaudio-rs on macOS)
 ```
 
 ## Key Architectural Notes
@@ -80,7 +80,7 @@ src-tauri/
 - See `src/lib/functions/stt.function.ts` and `ai-response.function.ts` line: `url?.startsWith("https") ? fetch : tauriFetch`.
 
 ### Local STT
-- **Default:** fluidaudio-rs in-process ASR on macOS 14+ Apple Silicon. No Python server required.
+- **Default:** `local-fluidaudio` uses fluidaudio-rs in-process ASR on macOS 14+ Apple Silicon. No Python server required. The pipeline is: VAD detects speech → Rust emits `speech-detected` with a base64 WAV → frontend `fetchSTT()` invokes `stt_transcribe_speech` → Rust returns final text.
 - **Advanced local STT servers:**
   - `whisper_server.py` — faster-whisper server on port 8000 (venv: `.whisper-venv`)
   - `mlx_asr_server.py` — mlx-audio ASR server on port 8001 (venv: `.mlx-asr-venv`); defaults to Parakeet TDT v3, supports Nemotron via `--model`

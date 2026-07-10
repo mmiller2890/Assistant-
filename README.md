@@ -82,7 +82,7 @@ npm run tauri build
 
 FluidAudio runs in-process via the `fluidaudio-rs` Rust crate and is the default STT provider on macOS 14+ Apple Silicon. It uses CoreML inference and requires no Python server, venv, or external binary. Select `local-fluidaudio` in **Dev Space → STT Providers** and it works immediately.
 
-**Known limitation:** FluidAudio delivers final text only after an utterance ends (via the `stt-final` event). It does not expose live partial transcriptions. For live partials while you speak, use `local-parakeet` (advanced, requires the mlx-audio server) instead.
+**How it works:** FluidAudio uses a batch STT path. When VAD detects the end of an utterance, the captured WAV is sent to the Rust `stt_transcribe_speech` command and the final text is returned. It does not expose live partial transcriptions while you speak. For live partials, use `local-parakeet` (advanced, requires the mlx-audio server) instead.
 
 ### Advanced Local STT Servers
 
@@ -130,7 +130,7 @@ Ollama, OpenAI, Claude, Gemini, Grok, Groq, Mistral, Cohere, Perplexity, OpenRou
 
 Local FluidAudio (macOS CoreML, default), Local Parakeet TDT v3 (MLX), Local Nemotron (MLX), Local Whisper (faster-whisper), OpenAI Whisper, Groq Whisper, ElevenLabs, Google, Deepgram, Azure, Speechmatics, Rev.ai, IBM Watson — plus any custom provider via curl.
 
-> **Tip:** FluidAudio is the default local STT on macOS Apple Silicon (no server needed; final text per utterance). Parakeet TDT v3 needs the mlx-audio server but supports real-time streaming partials. Nemotron supports 40 languages but batch-only in this setup.
+> **Tip:** FluidAudio is the default local STT on macOS Apple Silicon (no server needed; batch transcription per utterance). Parakeet TDT v3 needs the mlx-audio server but supports real-time streaming partials. Nemotron supports 40 languages but batch-only in this setup.
 
 ## 🔒 Privacy
 
