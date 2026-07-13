@@ -524,6 +524,26 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     ...customSttProviders,
   ];
 
+  // Validate selected STT provider exists in the available providers.
+  // Handles migration when providers are removed (e.g., local-parakeet, local-nemotron).
+  useEffect(() => {
+    if (
+      selectedSttProvider.provider &&
+      !allSttProviders.some((p) => p.id === selectedSttProvider.provider)
+    ) {
+      const fallback = isMacOS()
+        ? { provider: "local-fluidaudio" as const, variables: {} as Record<string, string> }
+        : {
+            provider: "local-whisper" as const,
+            variables: { MODEL: "openai/whisper-large-v3-turbo" } as Record<string, string>,
+          };
+      console.warn(
+        `Saved STT provider "${selectedSttProvider.provider}" no longer exists; falling back to "${fallback.provider}"`
+      );
+      setSelectedSttProvider(fallback);
+    }
+  }, [selectedSttProvider.provider, allSttProviders]);
+
   const onSetSelectedAIProvider = ({
     provider,
     variables,
