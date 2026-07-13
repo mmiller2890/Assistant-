@@ -84,7 +84,10 @@ pub fn run() {
             speaker::get_input_devices,
             speaker::get_output_devices,
             stt::stt_init,
+            stt::stt_init_vad,
+            stt::stt_init_diarization,
             stt::stt_transcribe_speech,
+            stt::stt_diarize_file,
             stt::stt_get_status,
         ])
         .setup(|app| {

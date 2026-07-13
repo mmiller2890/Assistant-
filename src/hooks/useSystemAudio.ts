@@ -58,6 +58,7 @@ interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   timestamp: number;
+  speaker?: string;
 }
 
 export interface ChatConversation {
@@ -101,6 +102,12 @@ export function useSystemAudio() {
     updatedAt: 0,
   });
 
+  const [speakerSegments, setSpeakerSegments] = useState<
+    Array<{ speaker_id: string; start_time: number; end_time: number }>
+  >([]);
+  const [isLabelingSpeakers, setIsLabelingSpeakers] = useState(false);
+  const [currentSpeaker, setCurrentSpeaker] = useState<string | null>(null);
+
   const [useSystemPrompt, setUseSystemPrompt] = useState<boolean>(true);
   const [contextContent, setContextContent] = useState<string>("");
 
@@ -123,6 +130,8 @@ export function useSystemAudio() {
   const streamingFinalizedRef = useRef<boolean>(false);
   const batchProcessedForCurrentUtteranceRef = useRef<boolean>(false);
   const capturedSampleRateRef = useRef<number>(16000);
+  const utteranceTimestampsRef = useRef<Array<{ start: number; end: number }>>([]);
+
 
   function buildStreamingUrl(
     provider: TYPE_PROVIDER,
@@ -380,10 +389,21 @@ export function useSystemAudio() {
             closeStreamingSocket();
             batchProcessedForCurrentUtteranceRef.current = true;
 
-            const base64Audio = event.payload as string;
+            const payload = event.payload as {
+              audio: string;
+              start_time: number;
+              end_time: number;
+            };
+
+            const base64Audio = payload.audio;
             if (!base64Audio || base64Audio.length < 100) {
               return;
             }
+
+            utteranceTimestampsRef.current.push({
+              start: payload.start_time,
+              end: payload.end_time,
+            });
 
             const binaryString = atob(base64Audio);
             const bytes = new Uint8Array(binaryString.length);
@@ -627,6 +647,67 @@ export function useSystemAudio() {
     }
   }, [isContinuousMode, isRecordingInContinuousMode]);
 
+  const getSpeakerForUtterance = useCallback(
+    (
+      startTime: number,
+      endTime: number,
+      segments: Array<{
+        speaker_id: string;
+        start_time: number;
+        end_time: number;
+      }>
+    ): string | null => {
+      let bestSpeaker: string | null = null;
+      let bestOverlap = 0;
+      for (const seg of segments) {
+        const overlap =
+          Math.min(endTime, seg.end_time) - Math.max(startTime, seg.start_time);
+        if (overlap > bestOverlap) {
+          bestOverlap = overlap;
+          bestSpeaker = seg.speaker_id;
+        }
+      }
+      return bestSpeaker;
+    },
+    []
+  );
+
+  const labelMessagesWithSpeakers = useCallback(
+    (
+      segments: Array<{
+        speaker_id: string;
+        start_time: number;
+        end_time: number;
+      }>,
+      timestamps: Array<{ start: number; end: number }>
+    ) => {
+      setConversation((prev) => {
+        if (timestamps.length === 0 || segments.length === 0) {
+          return prev;
+        }
+        const updated = [...prev.messages];
+        timestamps.forEach((ts, index) => {
+          const userMsgIndex = updated.length - 1 - index * 2;
+          if (
+            userMsgIndex >= 0 &&
+            updated[userMsgIndex]?.role === "user" &&
+            !updated[userMsgIndex].speaker
+          ) {
+            const speaker = getSpeakerForUtterance(ts.start, ts.end, segments);
+            if (speaker) {
+              updated[userMsgIndex] = {
+                ...updated[userMsgIndex],
+                speaker,
+              };
+            }
+          }
+        });
+        return { ...prev, messages: updated };
+      });
+    },
+    [getSpeakerForUtterance]
+  );
+
   const processWithAI = useCallback(
     async (
       transcription: string,
@@ -677,6 +758,17 @@ export function useSystemAudio() {
 
         if (fullResponse) {
           const timestamp = Date.now();
+          const latestUtterance =
+            utteranceTimestampsRef.current[
+              utteranceTimestampsRef.current.length - 1
+            ];
+          const speaker = latestUtterance
+            ? getSpeakerForUtterance(
+                latestUtterance.start,
+                latestUtterance.end,
+                speakerSegments
+              )
+            : null;
           setConversation((prev) => ({
             ...prev,
             messages: [
@@ -685,6 +777,7 @@ export function useSystemAudio() {
                 role: "user" as const,
                 content: transcription,
                 timestamp,
+                speaker: speaker || undefined,
               },
               {
                 id: generateMessageId("assistant", timestamp + 1),
@@ -697,6 +790,9 @@ export function useSystemAudio() {
             updatedAt: timestamp,
             title: prev.title || generateConversationTitle(transcription),
           }));
+          if (speaker) {
+            setCurrentSpeaker(speaker);
+          }
         }
       } catch (err) {
         setError("Failed to get AI response");
@@ -704,7 +800,13 @@ export function useSystemAudio() {
         setIsAIProcessing(false);
       }
     },
-    [selectedAIProvider, allAiProviders, conversation.messages]
+    [
+      selectedAIProvider,
+      allAiProviders,
+      conversation.messages,
+      speakerSegments,
+      getSpeakerForUtterance,
+    ]
   );
 
   const startCapture = useCallback(async () => {
@@ -724,10 +826,33 @@ export function useSystemAudio() {
           await initStt();
         }
 
-        const statusAfter = await invoke<{ asr_ready: boolean }>("stt_get_status");
+        const statusAfter = await invoke<{
+          asr_ready: boolean;
+          vad_ready: boolean;
+          diarization_ready: boolean;
+        }>("stt_get_status");
         if (!statusAfter.asr_ready) {
           setError("Failed to initialize local speech model. Please try again.");
           return;
+        }
+
+        if (!statusAfter.vad_ready) {
+          try {
+            await invoke("stt_init_vad", { threshold: 0.85 });
+          } catch (err) {
+            console.warn(
+              "Silero VAD init failed, falling back to threshold VAD:",
+              err
+            );
+          }
+        }
+
+        if (!statusAfter.diarization_ready) {
+          try {
+            await invoke("stt_init_diarization", { threshold: 0.6 });
+          } catch (err) {
+            console.warn("Diarization init failed:", err);
+          }
         }
       }
 
@@ -754,6 +879,10 @@ export function useSystemAudio() {
       setIsPopoverOpen(true);
       setIsContinuousMode(isContinuous);
       setRecordingProgress(0);
+      utteranceTimestampsRef.current = [];
+      setSpeakerSegments([]);
+      setIsLabelingSpeakers(false);
+      setCurrentSpeaker(null);
 
       if (isContinuous) {
         setIsRecordingInContinuousMode(false);
@@ -803,6 +932,39 @@ export function useSystemAudio() {
       closeStreamingSocket();
 
       await invoke<string>("stop_system_audio_capture");
+
+      if (selectedSttProvider.provider === "local-fluidaudio") {
+        let unlisten: (() => void) | undefined;
+        try {
+          setIsLabelingSpeakers(true);
+          unlisten = await listen("capture-stopped-with-audio", async (event) => {
+            const { path } = event.payload as {
+              path: string;
+              sample_rate: number;
+              duration_seconds: number;
+            };
+            try {
+              const segments = await invoke<
+                Array<{
+                  speaker_id: string;
+                  start_time: number;
+                  end_time: number;
+                }>
+              >("stt_diarize_file", { path });
+              setSpeakerSegments(segments);
+              labelMessagesWithSpeakers(segments, utteranceTimestampsRef.current);
+            } catch (err) {
+              console.warn("Diarization failed:", err);
+            } finally {
+              setIsLabelingSpeakers(false);
+              unlisten?.();
+            }
+          });
+        } catch (err) {
+          console.warn("Failed to listen for capture-stopped-with-audio:", err);
+          setIsLabelingSpeakers(false);
+        }
+      }
 
       setCapturing(false);
       setIsProcessing(false);
@@ -1096,5 +1258,8 @@ export function useSystemAudio() {
     startContinuousRecording,
     ignoreContinuousRecording,
     scrollAreaRef,
+    speakerSegments,
+    isLabelingSpeakers,
+    currentSpeaker,
   };
 }

@@ -14,6 +14,24 @@ use tauri::{AppHandle, Emitter, Listener, Manager};
 use tauri_plugin_shell::ShellExt;
 use tracing::{error, warn};
 
+#[cfg(target_os = "macos")]
+const SILERO_CHUNK_SAMPLES: usize = 4096;
+
+fn get_silero_vad_decision(
+    app: &AppHandle,
+    samples: &[f32],
+) -> Option<bool> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(stt_state) = app.try_state::<crate::stt::SttState>() {
+            if let Ok(frames) = stt_state.vad_process_samples(samples) {
+                return Some(frames.iter().any(|f| f.is_voice_active));
+            }
+        }
+    }
+    None
+}
+
 // VAD Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VadConfig {
@@ -163,6 +181,15 @@ async fn run_vad_capture(
     let mut last_emitted_len: usize = 0;
     let mut last_chunk_time: Option<Instant> = None;
 
+    let session_start = Instant::now();
+    let max_session_samples =
+        (sr as usize * config.max_recording_duration_secs as usize).min(sr as usize * 3600);
+    let mut session_audio: Vec<f32> = Vec::with_capacity(max_session_samples);
+    let mut vad_accumulator: Vec<f32> = Vec::new();
+    let mut pending_silero_decision: Option<bool> = None;
+    let mut vad_hops_until_refresh: usize = 0;
+    let mut utterance_start_time: f32 = 0.0;
+
     while let Some(sample) = stream.next().await {
         buffer.push_back(sample);
 
@@ -178,8 +205,32 @@ async fn run_vad_capture(
             // Apply noise gate BEFORE VAD (critical for accuracy)
             let mono = apply_noise_gate(&mono, config.noise_gate_threshold);
 
-            let (rms, peak) = calculate_audio_metrics(&mono);
-            let is_speech = rms > config.sensitivity_rms || peak > config.peak_threshold;
+            if session_audio.len() + mono.len() <= max_session_samples {
+                session_audio.extend_from_slice(&mono);
+            }
+
+            // Silero VAD processes 4096-sample chunks; accumulate hops.
+            #[cfg(target_os = "macos")]
+            {
+                vad_accumulator.extend_from_slice(&mono);
+                if vad_accumulator.len() >= SILERO_CHUNK_SAMPLES {
+                    let chunk: Vec<f32> = vad_accumulator.drain(..SILERO_CHUNK_SAMPLES).collect();
+                    pending_silero_decision = get_silero_vad_decision(&app, &chunk);
+                    vad_hops_until_refresh = SILERO_CHUNK_SAMPLES / config.hop_size;
+                }
+                if vad_hops_until_refresh > 0 {
+                    vad_hops_until_refresh -= 1;
+                }
+                if vad_hops_until_refresh == 0 {
+                    pending_silero_decision = None;
+                }
+            }
+
+            let is_speech = pending_silero_decision.unwrap_or_else(|| {
+                // Fallback to threshold VAD
+                let (rms, peak) = calculate_audio_metrics(&mono);
+                rms > config.sensitivity_rms || peak > config.peak_threshold
+            });
 
             if is_speech {
                 if !in_speech {
@@ -189,6 +240,8 @@ async fn run_vad_capture(
 
                     // Include pre-speech buffer for natural sound
                     speech_buffer.extend(pre_speech.drain(..));
+
+                    utterance_start_time = session_start.elapsed().as_secs_f32();
 
                     let _ = app.emit("speech-start", ());
                     last_emitted_len = 0;
@@ -220,11 +273,16 @@ async fn run_vad_capture(
 
                 // Safety cap: force emit if exceeds 30s
                 if speech_buffer.len() > max_samples {
+                    let utterance_end_time = session_start.elapsed().as_secs_f32();
                     let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
                     if normalized_buffer.is_empty() {
                         let _ = app.emit("audio-encoding-error", "Captured audio was empty after normalization");
                     } else if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
-                        let _ = app.emit("speech-detected", b64);
+                        let _ = app.emit("speech-detected", serde_json::json!({
+                            "audio": b64,
+                            "start_time": utterance_start_time,
+                            "end_time": utterance_end_time,
+                        }));
                     } else {
                         error!("Failed to encode speech to WAV");
                         let _ = app.emit("audio-encoding-error", "Failed to encode speech");
@@ -256,11 +314,16 @@ async fn run_vad_capture(
                                 speech_buffer.truncate(speech_buffer.len() - trim_amount);
                             }
 
+                            let utterance_end_time = session_start.elapsed().as_secs_f32();
                             let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
                             if normalized_buffer.is_empty() {
                                 let _ = app.emit("audio-encoding-error", "Captured audio was empty after normalization");
                             } else if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
-                                let _ = app.emit("speech-detected", b64);
+                                let _ = app.emit("speech-detected", serde_json::json!({
+                                    "audio": b64,
+                                    "start_time": utterance_start_time,
+                                    "end_time": utterance_end_time,
+                                }));
                             } else {
                                 error!("Failed to encode speech to WAV");
                                 let _ = app.emit("audio-encoding-error", "Failed to encode speech");
@@ -298,13 +361,37 @@ async fn run_vad_capture(
         }
     }
 
+    // Write session WAV for diarization
+    if !session_audio.is_empty() {
+        let temp_dir = std::env::temp_dir();
+        let temp_path = temp_dir.join(format!("assistant-session-{}.wav", uuid::Uuid::new_v4()));
+        if let Err(e) = write_f32_samples_to_wav(sr, &session_audio, &temp_path) {
+            error!("Failed to write session WAV: {}", e);
+        } else {
+            let path_str = temp_path.to_string_lossy().to_string();
+            if let Some(stt_state) = app.try_state::<crate::stt::SttState>() {
+                let _ = stt_state.set_session_wav_path(temp_path.clone());
+            }
+            let _ = app.emit("capture-stopped-with-audio", serde_json::json!({
+                "path": path_str,
+                "sample_rate": sr,
+                "duration_seconds": session_start.elapsed().as_secs_f32(),
+            }));
+        }
+    }
+
     // Emit any remaining audio when the stream ends.
     if in_speech && !speech_buffer.is_empty() {
+        let utterance_end_time = session_start.elapsed().as_secs_f32();
         let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
         if normalized_buffer.is_empty() {
             let _ = app.emit("audio-encoding-error", "Captured audio was empty after normalization");
         } else if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
-            let _ = app.emit("speech-detected", b64);
+            let _ = app.emit("speech-detected", serde_json::json!({
+                "audio": b64,
+                "start_time": utterance_start_time,
+                "end_time": utterance_end_time,
+            }));
         } else {
             error!("Failed to encode trailing speech to WAV");
             let _ = app.emit("audio-encoding-error", "Failed to encode speech");
@@ -420,7 +507,11 @@ async fn run_continuous_capture(
 
         match samples_to_wav_b64(sr, &cleaned_audio) {
             Ok(b64) => {
-                let _ = app.emit("speech-detected", b64);
+                let _ = app.emit("speech-detected", serde_json::json!({
+                    "audio": b64,
+                    "start_time": 0.0,
+                    "end_time": 0.0,
+                }));
             }
             Err(e) => {
                 error!("Failed to encode continuous audio: {}", e);
@@ -536,6 +627,28 @@ fn samples_to_wav_b64(sample_rate: u32, mono_f32: &[f32]) -> Result<String, Stri
     writer.finalize().map_err(|e| e.to_string())?;
 
     Ok(B64.encode(cursor.into_inner()))
+}
+
+fn write_f32_samples_to_wav(
+    sample_rate: u32,
+    samples: &[f32],
+    path: &std::path::Path,
+) -> Result<(), String> {
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer = WavWriter::create(path, spec).map_err(|e| e.to_string())?;
+    for &s in samples {
+        let clamped = s.clamp(-1.0, 1.0);
+        writer
+            .write_sample((clamped * i16::MAX as f32) as i16)
+            .map_err(|e| e.to_string())?;
+    }
+    writer.finalize().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 // Convert samples to raw little-endian f32 bytes, base64-encoded (no WAV header).

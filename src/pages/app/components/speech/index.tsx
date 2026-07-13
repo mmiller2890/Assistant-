@@ -68,6 +68,8 @@ export const SystemAudio = (props: useSystemAudioType) => {
     ignoreContinuousRecording,
     scrollAreaRef,
     isSttInitializing,
+    isLabelingSpeakers,
+    currentSpeaker,
   } = props;
 
   const { hasActiveLicense, supportsImages } = useApp();
@@ -366,6 +368,8 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       setConversationMode={setConversationMode}
                       partialTranscription={partialTranscription}
                       isStreaming={isStreaming}
+                      isLabelingSpeakers={isLabelingSpeakers}
+                      currentSpeaker={currentSpeaker}
                     />
 
                     {/* Settings Panel */}

@@ -4,6 +4,8 @@ import { listen } from "@tauri-apps/api/event";
 
 export interface SttStatus {
   asrReady: boolean;
+  vadReady: boolean;
+  diarizationReady: boolean;
   isSupported: boolean;
   isInitializing: boolean;
   error: string | null;
@@ -12,6 +14,8 @@ export interface SttStatus {
 export function useSttStatus() {
   const [status, setStatus] = useState<SttStatus>({
     asrReady: false,
+    vadReady: false,
+    diarizationReady: false,
     isSupported: false,
     isInitializing: false,
     error: null,
@@ -21,11 +25,15 @@ export function useSttStatus() {
     try {
       const result = await invoke<{
         asr_ready: boolean;
+        vad_ready: boolean;
+        diarization_ready: boolean;
         is_supported: boolean;
       }>("stt_get_status");
       setStatus((prev) => ({
         ...prev,
         asrReady: result.asr_ready,
+        vadReady: result.vad_ready,
+        diarizationReady: result.diarization_ready,
         isSupported: result.is_supported,
         error: null,
       }));
