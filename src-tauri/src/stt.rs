@@ -79,8 +79,11 @@ impl SttState {
             let result = audio
                 .transcribe_samples(samples)
                 .map_err(|e| e.to_string())?;
+            let text = audio
+                .itn_normalize_sentence(&result.text)
+                .unwrap_or(result.text.clone());
             Ok(serde_json::json!({
-                "text": result.text,
+                "text": text,
                 "confidence": result.confidence,
                 "duration": result.duration,
                 "processing_time": result.processing_time,
