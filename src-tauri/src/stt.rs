@@ -296,17 +296,24 @@ pub async fn stt_diarize_file(
 
     #[cfg(target_os = "macos")]
     {
+        let managed_path = state
+            .take_session_wav_path()
+            .map(|p| p.to_string_lossy().to_string());
+
+        let path_for_diarization = managed_path
+            .filter(|managed| managed == &path)
+            .ok_or("Path is not the managed session audio file")?;
+        let path_for_cleanup = path_for_diarization.clone();
+
         let inner = state.inner.clone();
-        let path_for_closure = path.clone();
         let segments = tokio::task::spawn_blocking(move || {
             let state = SttState { inner };
-            state.diarize_file(&path_for_closure)
+            state.diarize_file(&path_for_diarization)
         })
         .await
         .map_err(|e| e.to_string())??;
 
-        let _ = std::fs::remove_file(&path);
-        let _ = state.take_session_wav_path();
+        let _ = std::fs::remove_file(&path_for_cleanup);
 
         Ok(serde_json::json!(segments.iter().map(|s| {
             serde_json::json!({

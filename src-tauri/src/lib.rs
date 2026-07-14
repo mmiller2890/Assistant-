@@ -15,11 +15,20 @@ use speaker::VadConfig;
 #[allow(deprecated)]
 use tauri_nspanel::{cocoa::appkit::NSWindowCollectionBehavior, panel_delegate, WebviewWindowExt};
 
-#[derive(Default)]
 pub struct AudioState {
-    stream_task: Arc<Mutex<Option<JoinHandle<()>>>>,
+    stream_task: Arc<Mutex<Option<JoinHandle<Option<std::path::PathBuf>>>>>,
     vad_config: Arc<Mutex<VadConfig>>,
     is_capturing: Arc<Mutex<bool>>,
+}
+
+impl Default for AudioState {
+    fn default() -> Self {
+        Self {
+            stream_task: Arc::new(Mutex::new(None)),
+            vad_config: Arc::new(Mutex::new(VadConfig::default())),
+            is_capturing: Arc::new(Mutex::new(false)),
+        }
+    }
 }
 
 #[tauri::command]

@@ -59,12 +59,12 @@ impl Default for VadConfig {
         Self {
             enabled: true,
             hop_size: 1024,
-            sensitivity_rms: 0.012, // Much less sensitive - only real speech
-            peak_threshold: 0.035,  // Higher threshold - filters clicks/noise
-            silence_chunks: 45,     // ~1.0s of silence before stopping
-            min_speech_chunks: 7,   // ~0.16s - captures short answers
+            sensitivity_rms: 0.006, // Tuned for system audio which is quieter than mic speech
+            peak_threshold: 0.020,  // Lower threshold to catch quiet video/call audio
+            silence_chunks: 60,     // ~1.3s of silence before stopping (fewer false cuts)
+            min_speech_chunks: 5,   // ~0.11s - still filters clicks
             pre_speech_chunks: 12,  // ~0.27s - enough to catch word start
-            noise_gate_threshold: 0.003, // Stronger noise filtering
+            noise_gate_threshold: 0.0015, // Gentler gate for compressed system audio
             max_recording_duration_secs: 180, // 3 minutes default
             emit_chunks: false,
             chunk_interval_ms: 1000,
@@ -137,11 +137,12 @@ pub async fn start_system_audio_capture(
 
     let state_clone = app.state::<crate::AudioState>();
     let task = tokio::spawn(async move {
-        if vad_config.enabled {
-            run_vad_capture(app_clone.clone(), stream, sr, vad_config).await;
+        let session_path = if vad_config.enabled {
+            run_vad_capture(app_clone.clone(), stream, sr, vad_config).await
         } else {
             run_continuous_capture(app_clone.clone(), stream, sr, vad_config).await;
-        }
+            None
+        };
 
         let state = app_clone.state::<crate::AudioState>();
         {
@@ -149,6 +150,8 @@ pub async fn start_system_audio_capture(
                 *guard = None;
             };
         }
+
+        session_path
     });
 
     *state_clone
@@ -165,7 +168,7 @@ async fn run_vad_capture(
     stream: impl StreamExt<Item = f32> + Unpin,
     sr: u32,
     config: VadConfig,
-) {
+) -> Option<std::path::PathBuf> {
     let mut stream = stream;
     let mut buffer: VecDeque<f32> = VecDeque::new();
     let mut pre_speech: VecDeque<f32> =
@@ -184,9 +187,9 @@ async fn run_vad_capture(
     let session_start = Instant::now();
     let max_session_samples =
         (sr as usize * config.max_recording_duration_secs as usize).min(sr as usize * 3600);
-    let mut session_audio: Vec<f32> = Vec::with_capacity(max_session_samples);
+    let mut session_audio: Vec<f32> = Vec::new();
     let mut vad_accumulator: Vec<f32> = Vec::new();
-    let mut pending_silero_decision: Option<bool> = None;
+    let mut pending_silero_decision: Option<bool> = Some(false);
     let mut vad_hops_until_refresh: usize = 0;
     let mut utterance_start_time: f32 = 0.0;
 
@@ -220,9 +223,6 @@ async fn run_vad_capture(
                 }
                 if vad_hops_until_refresh > 0 {
                     vad_hops_until_refresh -= 1;
-                }
-                if vad_hops_until_refresh == 0 {
-                    pending_silero_decision = None;
                 }
             }
 
@@ -362,21 +362,17 @@ async fn run_vad_capture(
     }
 
     // Write session WAV for diarization
+    let mut session_path: Option<std::path::PathBuf> = None;
     if !session_audio.is_empty() {
         let temp_dir = std::env::temp_dir();
         let temp_path = temp_dir.join(format!("assistant-session-{}.wav", uuid::Uuid::new_v4()));
         if let Err(e) = write_f32_samples_to_wav(sr, &session_audio, &temp_path) {
             error!("Failed to write session WAV: {}", e);
         } else {
-            let path_str = temp_path.to_string_lossy().to_string();
             if let Some(stt_state) = app.try_state::<crate::stt::SttState>() {
                 let _ = stt_state.set_session_wav_path(temp_path.clone());
             }
-            let _ = app.emit("capture-stopped-with-audio", serde_json::json!({
-                "path": path_str,
-                "sample_rate": sr,
-                "duration_seconds": session_start.elapsed().as_secs_f32(),
-            }));
+            session_path = Some(temp_path);
         }
     }
 
@@ -397,6 +393,8 @@ async fn run_vad_capture(
             let _ = app.emit("audio-encoding-error", "Failed to encode speech");
         }
     }
+
+    session_path
 }
 
 // Continuous capture (VAD disabled)
@@ -405,7 +403,7 @@ async fn run_continuous_capture(
     stream: impl StreamExt<Item = f32> + Unpin,
     sr: u32,
     config: VadConfig,
-) {
+) -> Option<std::path::PathBuf> {
     let mut stream = stream;
     let max_samples = (sr as u64 * config.max_recording_duration_secs) as usize;
 
@@ -524,6 +522,8 @@ async fn run_continuous_capture(
     }
 
     let _ = app.emit("continuous-recording-stopped", ());
+
+    None
 }
 
 // Apply noise gate
@@ -666,23 +666,34 @@ fn samples_to_raw_f32_b64(mono_f32: &[f32]) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn stop_system_audio_capture(app: AppHandle) -> Result<(), String> {
+pub async fn stop_system_audio_capture(
+    app: AppHandle,
+) -> Result<Option<std::path::PathBuf>, String> {
     let state = app.state::<crate::AudioState>();
 
-    // Abort task in separate scope (Send trait fix)
-    {
+    // Take the task and await it so the capture function can finish writing
+    // its session WAV before we return to the frontend.
+    let task = {
         let mut guard = state
             .stream_task
             .lock()
             .map_err(|e| format!("Failed to acquire task lock: {}", e))?;
+        guard.take()
+    };
 
-        if let Some(task) = guard.take() {
-            task.abort();
+    let session_path = if let Some(task) = task {
+        task.abort();
+        match tokio::time::timeout(tokio::time::Duration::from_secs(5), task).await {
+            Ok(Ok(path)) => path,
+            Ok(Err(_)) => None,
+            Err(_) => {
+                error!("Capture task did not finish within 5 seconds after abort");
+                None
+            }
         }
-    }
-
-    // LONGER delay for proper cleanup (300ms instead of 150ms)
-    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+    } else {
+        None
+    };
 
     // Mark as not capturing
     *state
@@ -690,12 +701,9 @@ pub async fn stop_system_audio_capture(app: AppHandle) -> Result<(), String> {
         .lock()
         .map_err(|e| format!("Failed to update capturing state: {}", e))? = false;
 
-    // Additional cleanup delay (CRITICAL for mic indicator)
-    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-
     // Emit stopped event
     let _ = app.emit("capture-stopped", ());
-    Ok(())
+    Ok(session_path)
 }
 
 /// Manual stop for continuous recording

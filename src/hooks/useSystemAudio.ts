@@ -42,12 +42,12 @@ export interface VadConfig {
 const DEFAULT_VAD_CONFIG: VadConfig = {
   enabled: true,
   hop_size: 1024,
-  sensitivity_rms: 0.012,
-  peak_threshold: 0.035,
-  silence_chunks: 45,
-  min_speech_chunks: 7,
+  sensitivity_rms: 0.006,
+  peak_threshold: 0.020,
+  silence_chunks: 60,
+  min_speech_chunks: 5,
   pre_speech_chunks: 12,
-  noise_gate_threshold: 0.003,
+  noise_gate_threshold: 0.0015,
   max_recording_duration_secs: 180,
   emit_chunks: false,
   chunk_interval_ms: 1000,
@@ -377,6 +377,7 @@ export function useSystemAudio() {
         });
 
         speechUnlisten = await listen("speech-detected", async (event) => {
+          console.log("[SystemAudio] speech-detected event received");
           try {
             if (!capturingRef.current) return;
 
@@ -400,10 +401,12 @@ export function useSystemAudio() {
               return;
             }
 
-            utteranceTimestampsRef.current.push({
-              start: payload.start_time,
-              end: payload.end_time,
-            });
+            if (payload.start_time !== 0 || payload.end_time !== 0) {
+              utteranceTimestampsRef.current.push({
+                start: payload.start_time,
+                end: payload.end_time,
+              });
+            }
 
             const binaryString = atob(base64Audio);
             const bytes = new Uint8Array(binaryString.length);
@@ -437,12 +440,14 @@ export function useSystemAudio() {
             }, 30000);
 
             try {
+              console.log("[SystemAudio] Sending audio to STT provider:", currentSelected.provider);
               const transcription = await fetchSTT({
                 provider: providerConfig,
                 selectedProvider: currentSelected,
                 audio: audioBlob,
                 signal: sttAbortController.signal,
               });
+              console.log("[SystemAudio] STT result:", transcription);
 
               if (transcription.trim()) {
                 setLastTranscription(transcription);
@@ -686,20 +691,26 @@ export function useSystemAudio() {
           return prev;
         }
         const updated = [...prev.messages];
-        timestamps.forEach((ts, index) => {
-          const userMsgIndex = updated.length - 1 - index * 2;
-          if (
-            userMsgIndex >= 0 &&
-            updated[userMsgIndex]?.role === "user" &&
-            !updated[userMsgIndex].speaker
-          ) {
-            const speaker = getSpeakerForUtterance(ts.start, ts.end, segments);
-            if (speaker) {
-              updated[userMsgIndex] = {
-                ...updated[userMsgIndex],
-                speaker,
-              };
+        const userMessageIndices: number[] = [];
+        for (let i = updated.length - 1; i >= 0; i--) {
+          if (updated[i]?.role === "user" && !updated[i].speaker) {
+            userMessageIndices.push(i);
+            if (userMessageIndices.length >= timestamps.length) {
+              break;
             }
+          }
+        }
+        timestamps.forEach((ts, index) => {
+          const userMsgIndex = userMessageIndices[index];
+          if (userMsgIndex === undefined) {
+            return;
+          }
+          const speaker = getSpeakerForUtterance(ts.start, ts.end, segments);
+          if (speaker) {
+            updated[userMsgIndex] = {
+              ...updated[userMsgIndex],
+              speaker,
+            };
           }
         });
         return { ...prev, messages: updated };
@@ -823,6 +834,7 @@ export function useSystemAudio() {
         const status = await invoke<{ asr_ready: boolean }>("stt_get_status");
 
         if (!status.asr_ready && !isSttInitializing) {
+          console.log("[SystemAudio] Initializing local STT...");
           await initStt();
         }
 
@@ -831,6 +843,7 @@ export function useSystemAudio() {
           vad_ready: boolean;
           diarization_ready: boolean;
         }>("stt_get_status");
+        console.log("[SystemAudio] STT status after init:", statusAfter);
         if (!statusAfter.asr_ready) {
           setError("Failed to initialize local speech model. Please try again.");
           return;
@@ -857,6 +870,7 @@ export function useSystemAudio() {
       }
 
       const hasAccess = await invoke<boolean>("check_system_audio_access");
+      console.log("[SystemAudio] System audio access:", hasAccess);
       if (!hasAccess) {
         setSetupRequired(true);
         setIsPopoverOpen(true);
@@ -907,6 +921,7 @@ export function useSystemAudio() {
       });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error("[SystemAudio] startCapture failed:", errorMessage);
       setError(errorMessage);
       setIsPopoverOpen(true);
     }
@@ -931,37 +946,26 @@ export function useSystemAudio() {
 
       closeStreamingSocket();
 
-      await invoke<string>("stop_system_audio_capture");
+      const sessionPath = await invoke<string | null>(
+        "stop_system_audio_capture"
+      );
+      console.log("[SystemAudio] Capture stopped, session path:", sessionPath);
 
-      if (selectedSttProvider.provider === "local-fluidaudio") {
-        let unlisten: (() => void) | undefined;
+      if (selectedSttProvider.provider === "local-fluidaudio" && sessionPath) {
         try {
           setIsLabelingSpeakers(true);
-          unlisten = await listen("capture-stopped-with-audio", async (event) => {
-            const { path } = event.payload as {
-              path: string;
-              sample_rate: number;
-              duration_seconds: number;
-            };
-            try {
-              const segments = await invoke<
-                Array<{
-                  speaker_id: string;
-                  start_time: number;
-                  end_time: number;
-                }>
-              >("stt_diarize_file", { path });
-              setSpeakerSegments(segments);
-              labelMessagesWithSpeakers(segments, utteranceTimestampsRef.current);
-            } catch (err) {
-              console.warn("Diarization failed:", err);
-            } finally {
-              setIsLabelingSpeakers(false);
-              unlisten?.();
-            }
-          });
+          const segments = await invoke<
+            Array<{
+              speaker_id: string;
+              start_time: number;
+              end_time: number;
+            }>
+          >("stt_diarize_file", { path: sessionPath });
+          setSpeakerSegments(segments);
+          labelMessagesWithSpeakers(segments, utteranceTimestampsRef.current);
         } catch (err) {
-          console.warn("Failed to listen for capture-stopped-with-audio:", err);
+          console.warn("Diarization failed:", err);
+        } finally {
           setIsLabelingSpeakers(false);
         }
       }
