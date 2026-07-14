@@ -377,7 +377,6 @@ export function useSystemAudio() {
         });
 
         speechUnlisten = await listen("speech-detected", async (event) => {
-          console.log("[SystemAudio] speech-detected event received");
           try {
             if (!capturingRef.current) return;
 
@@ -440,14 +439,12 @@ export function useSystemAudio() {
             }, 30000);
 
             try {
-              console.log("[SystemAudio] Sending audio to STT provider:", currentSelected.provider);
               const transcription = await fetchSTT({
                 provider: providerConfig,
                 selectedProvider: currentSelected,
                 audio: audioBlob,
                 signal: sttAbortController.signal,
               });
-              console.log("[SystemAudio] STT result:", transcription);
 
               if (transcription.trim()) {
                 setLastTranscription(transcription);
@@ -834,7 +831,6 @@ export function useSystemAudio() {
         const status = await invoke<{ asr_ready: boolean }>("stt_get_status");
 
         if (!status.asr_ready && !isSttInitializing) {
-          console.log("[SystemAudio] Initializing local STT...");
           await initStt();
         }
 
@@ -843,7 +839,6 @@ export function useSystemAudio() {
           vad_ready: boolean;
           diarization_ready: boolean;
         }>("stt_get_status");
-        console.log("[SystemAudio] STT status after init:", statusAfter);
         if (!statusAfter.asr_ready) {
           setError("Failed to initialize local speech model. Please try again.");
           return;
@@ -870,7 +865,6 @@ export function useSystemAudio() {
       }
 
       const hasAccess = await invoke<boolean>("check_system_audio_access");
-      console.log("[SystemAudio] System audio access:", hasAccess);
       if (!hasAccess) {
         setSetupRequired(true);
         setIsPopoverOpen(true);
@@ -921,7 +915,6 @@ export function useSystemAudio() {
       });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      console.error("[SystemAudio] startCapture failed:", errorMessage);
       setError(errorMessage);
       setIsPopoverOpen(true);
     }
@@ -949,7 +942,6 @@ export function useSystemAudio() {
       const sessionPath = await invoke<string | null>(
         "stop_system_audio_capture"
       );
-      console.log("[SystemAudio] Capture stopped, session path:", sessionPath);
 
       if (selectedSttProvider.provider === "local-fluidaudio" && sessionPath) {
         try {
