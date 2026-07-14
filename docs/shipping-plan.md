@@ -6,6 +6,13 @@
 > End users should never see npm. They download a `.dmg`, drag the app to
 > Applications, and open it.
 
+> **Executable spec:** the exact, code-level steps to implement Phases 1–3 (with
+> every config diff, the entitlements/Info.plist files, and the release
+> workflow) live in
+> [`docs/superpowers/plans/2026-07-14-installable-macos-release.md`](superpowers/plans/2026-07-14-installable-macos-release.md).
+> That file is self-contained and can be handed to another engineer or agent to
+> execute task-by-task. Tasks 1–6 need no Apple account; Tasks 7–8 need it.
+
 ---
 
 ## The goal in one line
