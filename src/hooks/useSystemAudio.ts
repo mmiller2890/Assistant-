@@ -24,34 +24,9 @@ import { deepVariableReplacer } from "@/lib/functions/common.function";
 import curl2Json from "@bany/curl-to-json";
 import { TYPE_PROVIDER } from "@/types";
 import { Message } from "@/types/completion";
+import { useVadConfig, type VadConfig } from "./system-audio/useVadConfig";
 
-export interface VadConfig {
-  enabled: boolean;
-  hop_size: number;
-  sensitivity_rms: number;
-  peak_threshold: number;
-  silence_chunks: number;
-  min_speech_chunks: number;
-  pre_speech_chunks: number;
-  noise_gate_threshold: number;
-  max_recording_duration_secs: number;
-  emit_chunks?: boolean;
-  chunk_interval_ms?: number;
-}
-
-const DEFAULT_VAD_CONFIG: VadConfig = {
-  enabled: true,
-  hop_size: 1024,
-  sensitivity_rms: 0.012,
-  peak_threshold: 0.035,
-  silence_chunks: 45,
-  min_speech_chunks: 7,
-  pre_speech_chunks: 12,
-  noise_gate_threshold: 0.003,
-  max_recording_duration_secs: 180,
-  emit_chunks: false,
-  chunk_interval_ms: 1000,
-};
+export type { VadConfig };
 
 interface ChatMessage {
   id: string;
@@ -87,7 +62,7 @@ export function useSystemAudio() {
   const [isManagingQuickActions, setIsManagingQuickActions] =
     useState<boolean>(false);
   const [showQuickActions, setShowQuickActions] = useState<boolean>(true);
-  const [vadConfig, setVadConfig] = useState<VadConfig>(DEFAULT_VAD_CONFIG);
+  const { vadConfig, updateVadConfiguration } = useVadConfig();
   const [recordingProgress, setRecordingProgress] = useState<number>(0);
   const [isContinuousMode, setIsContinuousMode] = useState<boolean>(false);
   const [isRecordingInContinuousMode, setIsRecordingInContinuousMode] =
@@ -251,16 +226,6 @@ export function useSystemAudio() {
         setContextContent(parsed.contextContent ?? "");
       } catch (error) {
         console.error("Failed to load system audio context:", error);
-      }
-    }
-
-    const savedVadConfig = safeLocalStorage.getItem("vad_config");
-    if (savedVadConfig) {
-      try {
-        const parsed = JSON.parse(savedVadConfig);
-        setVadConfig(parsed);
-      } catch (error) {
-        console.error("Failed to load VAD config:", error);
       }
     }
   }, []);
@@ -961,16 +926,6 @@ export function useSystemAudio() {
     setIsAIProcessing(false);
     setIsPopoverOpen(false);
     setUseSystemPrompt(true);
-  }, []);
-
-  const updateVadConfiguration = useCallback(async (config: VadConfig) => {
-    try {
-      setVadConfig(config);
-      safeLocalStorage.setItem("vad_config", JSON.stringify(config));
-      await invoke("update_vad_config", { config });
-    } catch (error) {
-      console.error("Failed to update VAD config:", error);
-    }
   }, []);
 
   useEffect(() => {
