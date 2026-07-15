@@ -13,6 +13,14 @@
 > That file is self-contained and can be handed to another engineer or agent to
 > execute task-by-task. Tasks 1–6 need no Apple account; Tasks 7–8 need it.
 
+> **Parallel track — UI redesign:** a distinct, work-oriented visual identity
+> ("Slate & signal") and a dashboard-first layout are specced in
+> [`docs/design/ui-redesign-slate-and-signal.md`](design/ui-redesign-slate-and-signal.md).
+> This is a separate, weeks-scale frontend effort from packaging below — the two
+> can run in parallel. It replaces the fork-generic overlay look with a serious
+> instrument aesthetic and moves the app from "movable bar + popover" to a big
+> dashboard with the overlay kept as an optional pop-out.
+
 ---
 
 ## The goal in one line
