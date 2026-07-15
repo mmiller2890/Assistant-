@@ -5,11 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useApp } from "@/contexts";
 import { fetchSTT, fetchAIResponse } from "@/lib/functions";
 import { useSttStatus } from "./useSttStatus";
-import {
-  DEFAULT_QUICK_ACTIONS,
-  DEFAULT_SYSTEM_PROMPT,
-  STORAGE_KEYS,
-} from "@/config";
+import { DEFAULT_SYSTEM_PROMPT, STORAGE_KEYS } from "@/config";
 import {
   safeLocalStorage,
   generateConversationTitle,
@@ -25,6 +21,7 @@ import curl2Json from "@bany/curl-to-json";
 import { TYPE_PROVIDER } from "@/types";
 import { Message } from "@/types/completion";
 import { useVadConfig, type VadConfig } from "./system-audio/useVadConfig";
+import { useQuickActions } from "./system-audio/useQuickActions";
 
 export type { VadConfig };
 
@@ -58,10 +55,15 @@ export function useSystemAudio() {
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [setupRequired, setSetupRequired] = useState<boolean>(false);
-  const [quickActions, setQuickActions] = useState<string[]>([]);
-  const [isManagingQuickActions, setIsManagingQuickActions] =
-    useState<boolean>(false);
-  const [showQuickActions, setShowQuickActions] = useState<boolean>(true);
+  const {
+    quickActions,
+    addQuickAction,
+    removeQuickAction,
+    isManagingQuickActions,
+    setIsManagingQuickActions,
+    showQuickActions,
+    setShowQuickActions,
+  } = useQuickActions();
   const { vadConfig, updateVadConfiguration } = useVadConfig();
   const [recordingProgress, setRecordingProgress] = useState<number>(0);
   const [isContinuousMode, setIsContinuousMode] = useState<boolean>(false);
@@ -227,23 +229,6 @@ export function useSystemAudio() {
       } catch (error) {
         console.error("Failed to load system audio context:", error);
       }
-    }
-  }, []);
-
-  useEffect(() => {
-    const savedActions = safeLocalStorage.getItem(
-      STORAGE_KEYS.SYSTEM_AUDIO_QUICK_ACTIONS
-    );
-    if (savedActions) {
-      try {
-        const parsed = JSON.parse(savedActions);
-        setQuickActions(parsed);
-      } catch (error) {
-        console.error("Failed to load quick actions:", error);
-        setQuickActions(DEFAULT_QUICK_ACTIONS);
-      }
-    } else {
-      setQuickActions(DEFAULT_QUICK_ACTIONS);
     }
   }, []);
 
@@ -477,37 +462,6 @@ export function useSystemAudio() {
       saveContextSettings(useSystemPrompt, content);
     },
     [useSystemPrompt, saveContextSettings]
-  );
-
-  const saveQuickActions = useCallback((actions: string[]) => {
-    try {
-      safeLocalStorage.setItem(
-        STORAGE_KEYS.SYSTEM_AUDIO_QUICK_ACTIONS,
-        JSON.stringify(actions)
-      );
-    } catch (error) {
-      console.error("Failed to save quick actions:", error);
-    }
-  }, []);
-
-  const addQuickAction = useCallback(
-    (action: string) => {
-      if (action && !quickActions.includes(action)) {
-        const newActions = [...quickActions, action];
-        setQuickActions(newActions);
-        saveQuickActions(newActions);
-      }
-    },
-    [quickActions, saveQuickActions]
-  );
-
-  const removeQuickAction = useCallback(
-    (action: string) => {
-      const newActions = quickActions.filter((a) => a !== action);
-      setQuickActions(newActions);
-      saveQuickActions(newActions);
-    },
-    [quickActions, saveQuickActions]
   );
 
   const handleQuickActionClick = async (action: string) => {
