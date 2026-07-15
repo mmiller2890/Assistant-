@@ -3,7 +3,7 @@ import { useWindowResize, useGlobalShortcuts } from ".";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useApp } from "@/contexts";
-import { fetchSTT, fetchAIResponse } from "@/lib/functions";
+import { fetchSTT, fetchAIResponse, isLikelyQuestion } from "@/lib/functions";
 import { useSttStatus } from "./useSttStatus";
 import {
   DEFAULT_QUICK_ACTIONS,
@@ -59,6 +59,26 @@ interface ChatMessage {
   content: string;
   timestamp: number;
   speaker?: string;
+}
+
+/// Cap on how many prior messages are sent as AI context. Without a window,
+/// an hour-long session grows the prompt without bound (cost, latency, and
+/// eventually context overflow).
+const MAX_AI_HISTORY_MESSAGES = 12;
+
+/// Conversation state stores messages newest-first, but the AI needs them in
+/// chronological order. Take the most recent window, sorted oldest-first by
+/// timestamp. (Before this helper, the full history was sent newest-first —
+/// the model saw the conversation reversed.)
+function buildAIHistory(
+  messages: ChatMessage[],
+  excludeMessageId?: string
+): Message[] {
+  return messages
+    .filter((m) => m.id !== excludeMessageId)
+    .slice(0, MAX_AI_HISTORY_MESSAGES)
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .map((m) => ({ role: m.role, content: m.content }));
 }
 
 export interface ChatConversation {
@@ -126,6 +146,15 @@ export function useSystemAudio() {
   // Monotonic id for AI requests; processWithAI uses it to detect when a
   // newer utterance has superseded an in-flight stream.
   const aiRequestSeqRef = useRef(0);
+  // Most recent captured utterance, answered or not — the target of the
+  // answer-last-utterance shortcut.
+  const lastUtteranceRef = useRef<{ text: string; messageId: string } | null>(
+    null
+  );
+  // Read by the once-registered shortcut listener; assigned below after
+  // answerLastUtterance is defined (same stale-closure guard as
+  // processWithAIRef).
+  const answerLastRef = useRef<() => void>(() => {});
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isSavingRef = useRef<boolean>(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -168,7 +197,8 @@ export function useSystemAudio() {
     (
       transcription: string,
       prompt: string,
-      previousMessages: Message[]
+      previousMessages: Message[],
+      existingUserMessageId?: string
     ) => Promise<void>
   >(async () => {});
   capturingRef.current = capturing;
@@ -224,18 +254,24 @@ export function useSystemAudio() {
             streamingFinalizedRef.current = true;
 
             if (!batchProcessedForCurrentUtteranceRef.current && data.text && data.text.trim()) {
-              const effectiveSystemPrompt = useSystemPromptRef.current
-                ? systemPromptRef.current || DEFAULT_SYSTEM_PROMPT
-                : contextContentRef.current || DEFAULT_SYSTEM_PROMPT;
-              const previousMessages = conversationMessagesRef.current.map((msg) => ({
-                role: msg.role,
-                content: msg.content,
-              }));
-              processWithAIRef.current(
-                data.text,
-                effectiveSystemPrompt,
-                previousMessages
-              );
+              const messageId = appendUtteranceMessage(data.text);
+              lastUtteranceRef.current = { text: data.text, messageId };
+
+              if (isLikelyQuestion(data.text)) {
+                const effectiveSystemPrompt = useSystemPromptRef.current
+                  ? systemPromptRef.current || DEFAULT_SYSTEM_PROMPT
+                  : contextContentRef.current || DEFAULT_SYSTEM_PROMPT;
+                const previousMessages = buildAIHistory(
+                  conversationMessagesRef.current,
+                  messageId
+                );
+                processWithAIRef.current(
+                  data.text,
+                  effectiveSystemPrompt,
+                  previousMessages,
+                  messageId
+                );
+              }
             }
             ws.close();
           } else if (data.text) {
@@ -472,21 +508,29 @@ export function useSystemAudio() {
                 setLastTranscription(transcription);
                 setError("");
 
-                const effectiveSystemPrompt = useSystemPromptRef.current
-                  ? systemPromptRef.current || DEFAULT_SYSTEM_PROMPT
-                  : contextContentRef.current || DEFAULT_SYSTEM_PROMPT;
+                // Every utterance lands in the transcript; only likely
+                // questions earn an automatic answer. The rest can be
+                // answered on demand via the answer-last shortcut.
+                const messageId = appendUtteranceMessage(transcription);
+                lastUtteranceRef.current = { text: transcription, messageId };
 
-                const previousMessages = conversationMessagesRef.current.map(
-                  (msg) => {
-                    return { role: msg.role, content: msg.content };
-                  }
-                );
+                if (isLikelyQuestion(transcription)) {
+                  const effectiveSystemPrompt = useSystemPromptRef.current
+                    ? systemPromptRef.current || DEFAULT_SYSTEM_PROMPT
+                    : contextContentRef.current || DEFAULT_SYSTEM_PROMPT;
 
-                await processWithAIRef.current(
-                  transcription,
-                  effectiveSystemPrompt,
-                  previousMessages
-                );
+                  const previousMessages = buildAIHistory(
+                    conversationMessagesRef.current,
+                    messageId
+                  );
+
+                  await processWithAIRef.current(
+                    transcription,
+                    effectiveSystemPrompt,
+                    previousMessages,
+                    messageId
+                  );
+                }
               } else {
                 // Non-speech segments (music, ambience) legitimately transcribe
                 // to nothing — skip them quietly instead of surfacing an error.
@@ -621,9 +665,7 @@ export function useSystemAudio() {
       }
     }
 
-    const previousMessages = updatedMessages.map((msg) => {
-      return { role: msg.role, content: msg.content };
-    });
+    const previousMessages = buildAIHistory(updatedMessages);
 
     await processWithAI(action, effectiveSystemPrompt, previousMessages);
   };
@@ -751,11 +793,33 @@ export function useSystemAudio() {
     [getSpeakerForUtterance]
   );
 
+  // Record a captured utterance in the transcript immediately, whether or not
+  // it earns an automatic answer. Returns the message id so the answer path
+  // can attach the assistant reply without duplicating the user entry.
+  const appendUtteranceMessage = useCallback(
+    (transcription: string): string => {
+      const timestamp = Date.now();
+      const id = generateMessageId("user", timestamp);
+      setConversation((prev) => ({
+        ...prev,
+        messages: [
+          { id, role: "user" as const, content: transcription, timestamp },
+          ...prev.messages,
+        ],
+        updatedAt: timestamp,
+        title: prev.title || generateConversationTitle(transcription),
+      }));
+      return id;
+    },
+    []
+  );
+
   const processWithAI = useCallback(
     async (
       transcription: string,
       prompt: string,
-      previousMessages: Message[]
+      previousMessages: Message[],
+      existingUserMessageId?: string
     ) => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -822,27 +886,38 @@ export function useSystemAudio() {
                 speakerSegments
               )
             : null;
-          setConversation((prev) => ({
-            ...prev,
-            messages: [
-              {
-                id: generateMessageId("user", timestamp),
-                role: "user" as const,
-                content: transcription,
-                timestamp,
-                speaker: speaker || undefined,
-              },
-              {
-                id: generateMessageId("assistant", timestamp + 1),
-                role: "assistant" as const,
-                content: fullResponse,
-                timestamp: timestamp + 1,
-              },
-              ...prev.messages,
-            ],
-            updatedAt: timestamp,
-            title: prev.title || generateConversationTitle(transcription),
-          }));
+          setConversation((prev) => {
+            const assistantMessage = {
+              id: generateMessageId("assistant", timestamp + 1),
+              role: "assistant" as const,
+              content: fullResponse,
+              timestamp: timestamp + 1,
+            };
+            // Utterances recorded by appendUtteranceMessage are already in
+            // the transcript — attach only the reply to avoid duplicates.
+            const hasExistingUserMessage =
+              existingUserMessageId !== undefined &&
+              prev.messages.some((m) => m.id === existingUserMessageId);
+            const messages = hasExistingUserMessage
+              ? [assistantMessage, ...prev.messages]
+              : [
+                  {
+                    id: generateMessageId("user", timestamp),
+                    role: "user" as const,
+                    content: transcription,
+                    timestamp,
+                    speaker: speaker || undefined,
+                  },
+                  assistantMessage,
+                  ...prev.messages,
+                ];
+            return {
+              ...prev,
+              messages,
+              updatedAt: timestamp,
+              title: prev.title || generateConversationTitle(transcription),
+            };
+          });
           if (speaker) {
             setCurrentSpeaker(speaker);
           }
@@ -870,6 +945,49 @@ export function useSystemAudio() {
   // Keep the ref pointing at the freshest `processWithAI` so the once-registered
   // listener/socket call sites never run against a stale `selectedAIProvider`.
   processWithAIRef.current = processWithAI;
+
+  // Answer the most recent captured utterance on demand (global shortcut),
+  // regardless of whether the question gate skipped it. Reads everything
+  // through refs, so the once-registered listener below stays fresh.
+  const answerLastUtterance = useCallback(async () => {
+    const last = lastUtteranceRef.current;
+    if (!last) {
+      return;
+    }
+    const effectiveSystemPrompt = useSystemPromptRef.current
+      ? systemPromptRef.current || DEFAULT_SYSTEM_PROMPT
+      : contextContentRef.current || DEFAULT_SYSTEM_PROMPT;
+    const previousMessages = buildAIHistory(
+      conversationMessagesRef.current,
+      last.messageId
+    );
+    await processWithAIRef.current(
+      last.text,
+      effectiveSystemPrompt,
+      previousMessages,
+      last.messageId
+    );
+  }, []);
+  answerLastRef.current = answerLastUtterance;
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      try {
+        unlisten = await listen("custom-shortcut-triggered", (event) => {
+          const action = (event.payload as { action?: string })?.action;
+          if (action === "answer_last") {
+            answerLastRef.current();
+          }
+        });
+      } catch (err) {
+        console.warn("Failed to listen for answer-last shortcut:", err);
+      }
+    })();
+    return () => {
+      unlisten?.();
+    };
+  }, []);
 
   const startCapture = useCallback(async () => {
     try {
@@ -1288,6 +1406,7 @@ export function useSystemAudio() {
     conversation,
     setConversation,
     processWithAI,
+    answerLastUtterance,
     useSystemPrompt,
     setUseSystemPrompt: updateUseSystemPrompt,
     contextContent,

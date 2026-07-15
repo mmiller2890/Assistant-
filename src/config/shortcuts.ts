@@ -71,4 +71,15 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
       linux: "ctrl+shift+s",
     },
   },
+  {
+    id: "answer_last",
+    name: "Answer Last Utterance",
+    description:
+      "Ask the AI to answer the most recent captured speech, even if the question gate skipped it",
+    defaultKey: {
+      macos: "cmd+shift+enter",
+      windows: "ctrl+shift+enter",
+      linux: "ctrl+shift+enter",
+    },
+  },
 ];
