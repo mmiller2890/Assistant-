@@ -6,6 +6,7 @@ import {
   PopoverContent,
   ScrollArea,
   SttInitOverlay,
+  Markdown,
 } from "@/components";
 import {
   HeadphonesIcon,
@@ -15,6 +16,8 @@ import {
   CameraIcon,
   PlusIcon,
   XIcon,
+  FileTextIcon,
+  Loader2,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { ModeSwitcher } from "./ModeSwitcher";
@@ -72,6 +75,9 @@ export const SystemAudio = (props: useSystemAudioType) => {
     currentSpeaker,
     audioLevel,
     noAudioDetected,
+    sessionSummary,
+    isSummarizing,
+    dismissSummary,
   } = props;
 
   const { hasActiveLicense, supportsImages } = useApp();
@@ -422,6 +428,41 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       isLabelingSpeakers={isLabelingSpeakers}
                       currentSpeaker={currentSpeaker}
                     />
+
+                    {/* Session Summary (post-capture) */}
+                    {(isSummarizing || sessionSummary) && (
+                      <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <FileTextIcon className="w-3.5 h-3.5 text-primary" />
+                            <h4 className="text-xs font-medium">
+                              Session Summary
+                            </h4>
+                          </div>
+                          {sessionSummary && !isSummarizing && (
+                            <button
+                              onClick={dismissSummary}
+                              title="Dismiss summary"
+                              className="text-muted-foreground/60 hover:text-muted-foreground"
+                            >
+                              <XIcon className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        {isSummarizing && !sessionSummary ? (
+                          <div className="flex items-center gap-2 py-1">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                            <span className="text-xs text-muted-foreground">
+                              Summarizing session…
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="prose prose-sm max-w-none dark:prose-invert text-[11px]">
+                            <Markdown>{sessionSummary}</Markdown>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Settings Panel */}
                     <SettingsPanel

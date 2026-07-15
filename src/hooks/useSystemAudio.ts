@@ -85,6 +85,10 @@ export function useSystemAudio() {
   // failure that otherwise looks identical to normal listening.
   const [audioLevel, setAudioLevel] = useState<number>(0);
   const [noAudioDetected, setNoAudioDetected] = useState<boolean>(false);
+  // Post-session summary generated after a capture ends (survives the stop
+  // cleanup; cleared on the next start or when dismissed).
+  const [sessionSummary, setSessionSummary] = useState<string>("");
+  const [isSummarizing, setIsSummarizing] = useState<boolean>(false);
   const [isContinuousMode, setIsContinuousMode] = useState<boolean>(false);
   const [isRecordingInContinuousMode, setIsRecordingInContinuousMode] =
     useState<boolean>(false);
@@ -135,6 +139,9 @@ export function useSystemAudio() {
   // answerLastUtterance is defined (same stale-closure guard as
   // processWithAIRef).
   const answerLastRef = useRef<() => void>(() => {});
+  // Ref-backed so stopCapture (empty deps) always calls the freshest version,
+  // which reads the current AI provider.
+  const generateSummaryRef = useRef<() => void>(() => {});
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isSavingRef = useRef<boolean>(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -808,6 +815,59 @@ export function useSystemAudio() {
   }, []);
   answerLastRef.current = answerLastUtterance;
 
+  // Generate a concise, speaker-attributed summary of the just-ended session
+  // (key questions, main points, action items). This is the payoff for the
+  // transcript + diarization work — most of a meeting's value lands after it
+  // ends. Best-effort: skipped silently if there's nothing to summarize or no
+  // AI provider is configured.
+  const generateSessionSummary = useCallback(async () => {
+    const messages = conversationMessagesRef.current;
+    if (messages.filter((m) => m.role === "user").length < 1) return;
+    if (!selectedAIProvider.provider) return;
+    const provider = allAiProviders.find(
+      (p) => p.id === selectedAIProvider.provider
+    );
+    if (!provider) return;
+
+    // State is newest-first; reverse for a chronological, attributed transcript.
+    const transcript = [...messages]
+      .reverse()
+      .map((m) => {
+        const who =
+          m.role === "assistant" ? "Assistant" : m.speaker || "Speaker";
+        return `${who}: ${m.content}`;
+      })
+      .join("\n");
+
+    const summaryPrompt =
+      "You are summarizing a meeting or interview transcript. Produce a brief summary as short bullet points covering: (1) the key questions or topics raised — attribute to the speaker label when present; (2) the main points and answers; (3) any action items or follow-ups. Be concise; omit sections that don't apply.";
+
+    setIsSummarizing(true);
+    setSessionSummary("");
+    try {
+      for await (const chunk of fetchAIResponse({
+        provider,
+        selectedProvider: selectedAIProvider,
+        systemPrompt: summaryPrompt,
+        history: [],
+        userMessage: `Transcript:\n\n${transcript}`,
+        imagesBase64: [],
+      })) {
+        setSessionSummary((prev) => prev + chunk);
+      }
+    } catch (err) {
+      console.warn("Session summary failed:", err);
+    } finally {
+      setIsSummarizing(false);
+    }
+  }, [selectedAIProvider, allAiProviders]);
+  generateSummaryRef.current = generateSessionSummary;
+
+  const dismissSummary = useCallback(() => {
+    setSessionSummary("");
+    setIsSummarizing(false);
+  }, []);
+
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     (async () => {
@@ -961,6 +1021,8 @@ export function useSystemAudio() {
       setRecordingProgress(0);
       setAudioLevel(0);
       setNoAudioDetected(false);
+      setSessionSummary("");
+      setIsSummarizing(false);
       utteranceTimestampsRef.current = [];
       setSpeakerSegments([]);
       setIsLabelingSpeakers(false);
@@ -1036,6 +1098,10 @@ export function useSystemAudio() {
         }
       }
 
+      // Summarize the just-ended session (fire-and-forget). Kept out of the
+      // reset below so the summary survives and shows in the popover.
+      generateSummaryRef.current();
+
       setCapturing(false);
       setIsProcessing(false);
       setIsAIProcessing(false);
@@ -1048,7 +1114,8 @@ export function useSystemAudio() {
       setLastAIResponse("");
       closeStreamingSocket();
       setError("");
-      setIsPopoverOpen(false);
+      // Leave the popover open if a summary is being generated/shown (the
+      // popover-open effect keeps it up); otherwise it closes normally.
       streamingFinalizedRef.current = false;
       batchProcessedForCurrentUtteranceRef.current = false;
       capturingRef.current = false;
@@ -1106,6 +1173,8 @@ export function useSystemAudio() {
       isAIProcessing ||
       !!lastAIResponse ||
       isStreaming ||
+      isSummarizing ||
+      !!sessionSummary ||
       !!error;
     setIsPopoverOpen(shouldOpenPopover);
     resizeWindow(shouldOpenPopover);
@@ -1115,6 +1184,8 @@ export function useSystemAudio() {
     isAIProcessing,
     lastAIResponse,
     isStreaming,
+    isSummarizing,
+    sessionSummary,
     error,
     resizeWindow,
   ]);
@@ -1370,6 +1441,9 @@ export function useSystemAudio() {
     recordingProgress,
     audioLevel,
     noAudioDetected,
+    sessionSummary,
+    isSummarizing,
+    dismissSummary,
     manualStopAndSend,
     startContinuousRecording,
     ignoreContinuousRecording,
