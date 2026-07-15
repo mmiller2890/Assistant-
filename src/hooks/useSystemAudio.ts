@@ -20,10 +20,13 @@ import {
   isMacOS,
   isWindows,
 } from "@/lib";
-import { deepVariableReplacer } from "@/lib/functions/common.function";
-import curl2Json from "@bany/curl-to-json";
-import { TYPE_PROVIDER } from "@/types";
-import { Message } from "@/types/completion";
+import {
+  ChatConversation,
+  ChatMessage,
+  Message,
+} from "@/types/completion";
+import { useSpeakerLabels } from "./system-audio/useSpeakerLabels";
+import { useSttStreamSocket } from "./system-audio/useSttStreamSocket";
 
 export interface VadConfig {
   enabled: boolean;
@@ -53,14 +56,6 @@ const DEFAULT_VAD_CONFIG: VadConfig = {
   chunk_interval_ms: 1000,
 };
 
-interface ChatMessage {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  timestamp: number;
-  speaker?: string;
-}
-
 /// Cap on how many prior messages are sent as AI context. Without a window,
 /// an hour-long session grows the prompt without bound (cost, latency, and
 /// eventually context overflow).
@@ -81,13 +76,9 @@ function buildAIHistory(
     .map((m) => ({ role: m.role, content: m.content }));
 }
 
-export interface ChatConversation {
-  id: string;
-  title: string;
-  messages: ChatMessage[];
-  createdAt: number;
-  updatedAt: number;
-}
+// Conversation/message shapes are the shared app types; re-exported here for
+// existing importers of this module.
+export type { ChatConversation };
 
 export type useSystemAudioType = ReturnType<typeof useSystemAudio>;
 
@@ -100,8 +91,6 @@ export function useSystemAudio() {
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [lastTranscription, setLastTranscription] = useState<string>("");
   const [lastAIResponse, setLastAIResponse] = useState<string>("");
-  const [partialTranscription, setPartialTranscription] = useState<string>("");
-  const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [setupRequired, setSetupRequired] = useState<boolean>(false);
   const [quickActions, setQuickActions] = useState<string[]>([]);
@@ -122,11 +111,16 @@ export function useSystemAudio() {
     updatedAt: 0,
   });
 
-  const [speakerSegments, setSpeakerSegments] = useState<
-    Array<{ speaker_id: string; start_time: number; end_time: number }>
-  >([]);
-  const [isLabelingSpeakers, setIsLabelingSpeakers] = useState(false);
-  const [currentSpeaker, setCurrentSpeaker] = useState<string | null>(null);
+  const {
+    speakerSegments,
+    setSpeakerSegments,
+    isLabelingSpeakers,
+    setIsLabelingSpeakers,
+    currentSpeaker,
+    setCurrentSpeaker,
+    getSpeakerForUtterance,
+    labelMessagesWithSpeakers,
+  } = useSpeakerLabels(setConversation);
 
   const [useSystemPrompt, setUseSystemPrompt] = useState<boolean>(true);
   const [contextContent, setContextContent] = useState<string>("");
@@ -158,25 +152,8 @@ export function useSystemAudio() {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isSavingRef = useRef<boolean>(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const streamingFinalizedRef = useRef<boolean>(false);
-  const batchProcessedForCurrentUtteranceRef = useRef<boolean>(false);
   const capturedSampleRateRef = useRef<number>(16000);
   const utteranceTimestampsRef = useRef<Array<{ start: number; end: number }>>([]);
-
-
-  function buildStreamingUrl(
-    provider: TYPE_PROVIDER,
-    selected: { provider: string; variables: Record<string, string> }
-  ): string {
-    if (provider.streamingUrl) {
-      return deepVariableReplacer(provider.streamingUrl, selected.variables);
-    }
-    const curlJson = curl2Json(provider.curl);
-    const baseUrl = (curlJson.url as string) || "";
-    const replaced = deepVariableReplacer(baseUrl, selected.variables);
-    return replaced.replace(/^http/, "ws");
-  }
 
   const capturingRef = useRef(capturing);
   const selectedSttProviderRef = useRef(selectedSttProvider);
@@ -209,103 +186,24 @@ export function useSystemAudio() {
   contextContentRef.current = contextContent;
   conversationMessagesRef.current = conversation.messages;
 
-  const openStreamingSocket = useCallback(() => {
-    const currentSelected = selectedSttProviderRef.current;
-    if (currentSelected.provider === "local-fluidaudio") return;
-
-    const currentProviders = allSttProvidersRef.current;
-    const providerConfig = currentProviders.find(
-      (p) => p.id === currentSelected.provider
-    );
-    if (!providerConfig?.streaming) return;
-
-    if (wsRef.current) {
-      if (wsRef.current.readyState === WebSocket.OPEN) return;
-    }
-
-    streamingFinalizedRef.current = false;
-    batchProcessedForCurrentUtteranceRef.current = false;
-
-    try {
-      const wsUrl = buildStreamingUrl(providerConfig, currentSelected);
-      const ws = new WebSocket(wsUrl);
-      ws.binaryType = "arraybuffer";
-
-      ws.onopen = () => {
-        ws.send(
-          JSON.stringify({
-            sample_rate: capturedSampleRateRef.current,
-          })
-        );
-        setIsStreaming(true);
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.error) {
-            console.error("[STT-Stream] Server error:", data.error);
-            return;
-          }
-          if (data.is_final) {
-            setLastTranscription(data.text || "");
-            setPartialTranscription("");
-            setIsStreaming(false);
-            streamingFinalizedRef.current = true;
-
-            if (!batchProcessedForCurrentUtteranceRef.current && data.text && data.text.trim()) {
-              const messageId = appendUtteranceMessage(data.text);
-              lastUtteranceRef.current = { text: data.text, messageId };
-
-              if (isLikelyQuestion(data.text)) {
-                const effectiveSystemPrompt = useSystemPromptRef.current
-                  ? systemPromptRef.current || DEFAULT_SYSTEM_PROMPT
-                  : contextContentRef.current || DEFAULT_SYSTEM_PROMPT;
-                const previousMessages = buildAIHistory(
-                  conversationMessagesRef.current,
-                  messageId
-                );
-                processWithAIRef.current(
-                  data.text,
-                  effectiveSystemPrompt,
-                  previousMessages,
-                  messageId
-                );
-              }
-            }
-            ws.close();
-          } else if (data.text) {
-            setPartialTranscription(data.text);
-          }
-        } catch (e) {
-          console.error("[STT-Stream] Failed to parse message:", e);
-        }
-      };
-
-      ws.onerror = (e) => {
-        console.error("[STT-Stream] WebSocket error:", e);
-        setIsStreaming(false);
-      };
-
-      ws.onclose = () => {
-        wsRef.current = null;
-        setIsStreaming(false);
-      };
-
-      wsRef.current = ws;
-    } catch (err) {
-      console.error("[STT-Stream] Failed to open WebSocket:", err);
-    }
-  }, []);
-
-  const closeStreamingSocket = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    setIsStreaming(false);
-    setPartialTranscription("");
-  }, []);
+  // Handles a streaming provider's final transcript. Ref-backed because the
+  // socket handlers are created once per socket; assigned below once the
+  // transcript/answer helpers are defined.
+  const onFinalTranscriptRef = useRef<(text: string) => void>(() => {});
+  const {
+    isStreaming,
+    partialTranscription,
+    openStreamingSocket,
+    closeStreamingSocket,
+    sendAudioChunk,
+    streamingFinalizedRef,
+    batchProcessedForCurrentUtteranceRef,
+  } = useSttStreamSocket({
+    selectedSttProviderRef,
+    allSttProvidersRef,
+    capturedSampleRateRef,
+    onFinalTranscriptRef,
+  });
 
   useEffect(() => {
     const savedContext = safeLocalStorage.getItem(
@@ -422,16 +320,7 @@ export function useSystemAudio() {
         });
 
         speechChunkUnlisten = await listen("speech-chunk", (event) => {
-          const base64Audio = event.payload as string;
-          if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-            return;
-          }
-          const binaryString = atob(base64Audio);
-          const bytes = new Uint8Array(binaryString.length);
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-          }
-          wsRef.current.send(bytes.buffer);
+          sendAudioChunk(event.payload as string);
         });
 
         speechUnlisten = await listen("speech-detected", async (event) => {
@@ -726,72 +615,6 @@ export function useSystemAudio() {
     }
   }, [isContinuousMode, isRecordingInContinuousMode]);
 
-  const getSpeakerForUtterance = useCallback(
-    (
-      startTime: number,
-      endTime: number,
-      segments: Array<{
-        speaker_id: string;
-        start_time: number;
-        end_time: number;
-      }>
-    ): string | null => {
-      let bestSpeaker: string | null = null;
-      let bestOverlap = 0;
-      for (const seg of segments) {
-        const overlap =
-          Math.min(endTime, seg.end_time) - Math.max(startTime, seg.start_time);
-        if (overlap > bestOverlap) {
-          bestOverlap = overlap;
-          bestSpeaker = seg.speaker_id;
-        }
-      }
-      return bestSpeaker;
-    },
-    []
-  );
-
-  const labelMessagesWithSpeakers = useCallback(
-    (
-      segments: Array<{
-        speaker_id: string;
-        start_time: number;
-        end_time: number;
-      }>,
-      timestamps: Array<{ start: number; end: number }>
-    ) => {
-      setConversation((prev) => {
-        if (timestamps.length === 0 || segments.length === 0) {
-          return prev;
-        }
-        const updated = [...prev.messages];
-        const userMessageIndices: number[] = [];
-        for (let i = updated.length - 1; i >= 0; i--) {
-          if (updated[i]?.role === "user" && !updated[i].speaker) {
-            userMessageIndices.push(i);
-            if (userMessageIndices.length >= timestamps.length) {
-              break;
-            }
-          }
-        }
-        timestamps.forEach((ts, index) => {
-          const userMsgIndex = userMessageIndices[index];
-          if (userMsgIndex === undefined) {
-            return;
-          }
-          const speaker = getSpeakerForUtterance(ts.start, ts.end, segments);
-          if (speaker) {
-            updated[userMsgIndex] = {
-              ...updated[userMsgIndex],
-              speaker,
-            };
-          }
-        });
-        return { ...prev, messages: updated };
-      });
-    },
-    [getSpeakerForUtterance]
-  );
 
   // Record a captured utterance in the transcript immediately, whether or not
   // it earns an automatic answer. Returns the message id so the answer path
@@ -945,6 +768,33 @@ export function useSystemAudio() {
   // Keep the ref pointing at the freshest `processWithAI` so the once-registered
   // listener/socket call sites never run against a stale `selectedAIProvider`.
   processWithAIRef.current = processWithAI;
+
+  // Streaming provider produced a final transcript for the current utterance.
+  // Mirrors the batch path: record it, then answer if it looks like a question
+  // (unless the batch path already handled this utterance).
+  onFinalTranscriptRef.current = (text: string) => {
+    setLastTranscription(text);
+    if (!batchProcessedForCurrentUtteranceRef.current && text.trim()) {
+      const messageId = appendUtteranceMessage(text);
+      lastUtteranceRef.current = { text, messageId };
+
+      if (isLikelyQuestion(text)) {
+        const effectiveSystemPrompt = useSystemPromptRef.current
+          ? systemPromptRef.current || DEFAULT_SYSTEM_PROMPT
+          : contextContentRef.current || DEFAULT_SYSTEM_PROMPT;
+        const previousMessages = buildAIHistory(
+          conversationMessagesRef.current,
+          messageId
+        );
+        processWithAIRef.current(
+          text,
+          effectiveSystemPrompt,
+          previousMessages,
+          messageId
+        );
+      }
+    }
+  };
 
   // Answer the most recent captured utterance on demand (global shortcut),
   // regardless of whether the question gate skipped it. Reads everything
@@ -1145,8 +995,7 @@ export function useSystemAudio() {
       setRecordingProgress(0);
       setLastTranscription("");
       setLastAIResponse("");
-      setPartialTranscription("");
-      setIsStreaming(false);
+      closeStreamingSocket();
       setError("");
       setIsPopoverOpen(false);
       streamingFinalizedRef.current = false;
