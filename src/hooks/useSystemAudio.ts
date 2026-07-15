@@ -45,7 +45,7 @@ const DEFAULT_VAD_CONFIG: VadConfig = {
   sensitivity_rms: 0.006,
   peak_threshold: 0.020,
   silence_chunks: 60,
-  min_speech_chunks: 5,
+  min_speech_chunks: 12,
   pre_speech_chunks: 12,
   noise_gate_threshold: 0.0015,
   max_recording_duration_secs: 180,
@@ -153,6 +153,21 @@ export function useSystemAudio() {
   const systemPromptRef = useRef(systemPrompt);
   const contextContentRef = useRef(contextContent);
   const conversationMessagesRef = useRef(conversation.messages);
+  // `processWithAI` is invoked from the `speech-detected` listener and the
+  // streaming socket, both registered once with empty/stable deps. They capture
+  // their closure on the first render — when `selectedAIProvider` is still the
+  // initial empty value (the context hydrates it from localStorage afterwards),
+  // which made system-audio capture fail with "No AI provider selected" even
+  // after a provider was chosen. Mirror the latest callback into a ref, like
+  // the other listener-visible values above, so those call sites always read
+  // the current provider. Assigned after `processWithAI` is defined below.
+  const processWithAIRef = useRef<
+    (
+      transcription: string,
+      prompt: string,
+      previousMessages: Message[]
+    ) => Promise<void>
+  >(async () => {});
   capturingRef.current = capturing;
   selectedSttProviderRef.current = selectedSttProvider;
   allSttProvidersRef.current = allSttProviders;
@@ -213,7 +228,11 @@ export function useSystemAudio() {
                 role: msg.role,
                 content: msg.content,
               }));
-              processWithAI(data.text, effectiveSystemPrompt, previousMessages);
+              processWithAIRef.current(
+                data.text,
+                effectiveSystemPrompt,
+                previousMessages
+              );
             }
             ws.close();
           } else if (data.text) {
@@ -460,13 +479,15 @@ export function useSystemAudio() {
                   }
                 );
 
-                await processWithAI(
+                await processWithAIRef.current(
                   transcription,
                   effectiveSystemPrompt,
                   previousMessages
                 );
               } else {
-                setError("Received empty transcription");
+                // Non-speech segments (music, ambience) legitimately transcribe
+                // to nothing — skip them quietly instead of surfacing an error.
+                console.warn("Skipping empty transcription for non-speech segment");
               }
             } catch (sttError: any) {
               console.error("STT Error:", sttError);
@@ -817,6 +838,10 @@ export function useSystemAudio() {
     ]
   );
 
+  // Keep the ref pointing at the freshest `processWithAI` so the once-registered
+  // listener/socket call sites never run against a stale `selectedAIProvider`.
+  processWithAIRef.current = processWithAI;
+
   const startCapture = useCallback(async () => {
     try {
       setError("");
@@ -846,7 +871,10 @@ export function useSystemAudio() {
 
         if (!statusAfter.vad_ready) {
           try {
-            await invoke("stt_init_vad", { threshold: 0.85 });
+            // 0.5 matches the mic path's positiveSpeechThreshold. The capture
+            // loop applies its own 0.5/0.35 hysteresis on the raw probability;
+            // this threshold only shapes VadFrame.is_voice_active.
+            await invoke("stt_init_vad", { threshold: 0.5 });
           } catch (err) {
             console.warn(
               "Silero VAD init failed, falling back to threshold VAD:",
