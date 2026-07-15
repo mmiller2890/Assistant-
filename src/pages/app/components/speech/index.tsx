@@ -70,6 +70,8 @@ export const SystemAudio = (props: useSystemAudioType) => {
     isSttInitializing,
     isLabelingSpeakers,
     currentSpeaker,
+    audioLevel,
+    noAudioDetected,
   } = props;
 
   const { hasActiveLicense, supportsImages } = useApp();
@@ -356,6 +358,42 @@ export const SystemAudio = (props: useSystemAudioType) => {
                   />
                 ) : (
                   <>
+                    {/* Live input-level meter + no-audio hint (VAD listening) */}
+                    {capturing && isVadMode && (
+                      <div className="px-1 pb-2 space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
+                            Input
+                          </span>
+                          <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                            <div
+                              className={cn(
+                                "h-full rounded-full transition-[width] duration-100",
+                                noAudioDetected ? "bg-amber-500" : "bg-green-500"
+                              )}
+                              style={{
+                                width: `${Math.min(
+                                  100,
+                                  Math.round((audioLevel ?? 0) * 100 * 3)
+                                )}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                        {noAudioDetected && (
+                          <p className="text-[10px] text-amber-600 dark:text-amber-500 leading-snug">
+                            No system audio detected. Make sure something is
+                            playing, and that Assistant has permission in{" "}
+                            <span className="font-medium">
+                              System Settings → Privacy &amp; Security → Screen
+                              &amp; System Audio Recording
+                            </span>
+                            .
+                          </p>
+                        )}
+                      </div>
+                    )}
+
                     {/* Recording Panel */}
                     <RecordingPanel
                       isVadMode={isVadMode}

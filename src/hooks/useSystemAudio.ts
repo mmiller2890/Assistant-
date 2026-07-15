@@ -80,6 +80,11 @@ export function useSystemAudio() {
   const [showQuickActions, setShowQuickActions] = useState<boolean>(true);
   const [vadConfig, setVadConfig] = useState<VadConfig>(DEFAULT_VAD_CONFIG);
   const [recordingProgress, setRecordingProgress] = useState<number>(0);
+  // Live input level (0..1, raw peak) and a "no audio detected" flag, both
+  // driven by backend events during VAD capture — they surface the silent-tap
+  // failure that otherwise looks identical to normal listening.
+  const [audioLevel, setAudioLevel] = useState<number>(0);
+  const [noAudioDetected, setNoAudioDetected] = useState<boolean>(false);
   const [isContinuousMode, setIsContinuousMode] = useState<boolean>(false);
   const [isRecordingInContinuousMode, setIsRecordingInContinuousMode] =
     useState<boolean>(false);
@@ -822,6 +827,29 @@ export function useSystemAudio() {
     };
   }, []);
 
+  // Input-level meter + no-audio detection from the VAD capture loop.
+  // Registered once.
+  useEffect(() => {
+    let unlistenLevel: (() => void) | undefined;
+    let unlistenSilent: (() => void) | undefined;
+    (async () => {
+      try {
+        unlistenLevel = await listen("audio-level", (event) => {
+          setAudioLevel((event.payload as number) ?? 0);
+        });
+        unlistenSilent = await listen("audio-silent", () => {
+          setNoAudioDetected(true);
+        });
+      } catch (err) {
+        console.warn("Failed to listen for audio level events:", err);
+      }
+    })();
+    return () => {
+      unlistenLevel?.();
+      unlistenSilent?.();
+    };
+  }, []);
+
   // The Rust VAD capture emits `audio-device-changed` when the default output
   // device switches mid-session (e.g. AirPods plugged in) — the tap would
   // otherwise keep capturing silence. Transparently restart on the new device.
@@ -931,6 +959,8 @@ export function useSystemAudio() {
       setIsPopoverOpen(true);
       setIsContinuousMode(isContinuous);
       setRecordingProgress(0);
+      setAudioLevel(0);
+      setNoAudioDetected(false);
       utteranceTimestampsRef.current = [];
       setSpeakerSegments([]);
       setIsLabelingSpeakers(false);
@@ -1012,6 +1042,8 @@ export function useSystemAudio() {
       setIsContinuousMode(false);
       setIsRecordingInContinuousMode(false);
       setRecordingProgress(0);
+      setAudioLevel(0);
+      setNoAudioDetected(false);
       setLastTranscription("");
       setLastAIResponse("");
       closeStreamingSocket();
@@ -1336,6 +1368,8 @@ export function useSystemAudio() {
     isContinuousMode,
     isRecordingInContinuousMode,
     recordingProgress,
+    audioLevel,
+    noAudioDetected,
     manualStopAndSend,
     startContinuousRecording,
     ignoreContinuousRecording,

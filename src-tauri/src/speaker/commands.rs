@@ -47,6 +47,11 @@ fn resample_linear(input: &[f32], from_rate: usize, to_rate: usize) -> Vec<f32> 
 const SILERO_POSITIVE_THRESHOLD: f32 = 0.5;
 const SILERO_NEGATIVE_THRESHOLD: f32 = 0.35;
 
+/// Peak below which a chunk is treated as "no signal at all" for the no-audio
+/// warning. A silent tap (denied permission / wrong output device) delivers
+/// exactly 0.0; any real audio, however quiet, exceeds this.
+const SILENCE_FLOOR: f32 = 0.0005;
+
 /// Hysteresis decision on a raw Silero probability: enter speech only once the
 /// probability rises above the positive threshold, and stay in speech until it
 /// drops below the (lower) negative threshold. The gap between the two
@@ -240,6 +245,11 @@ async fn run_vad_capture(
 ) -> Option<std::path::PathBuf> {
     let mut stream = stream;
     let mut last_device_check = Instant::now();
+    // Input-level metering + no-audio detection (see the emit sites below).
+    let mut last_level_emit = Instant::now();
+    let mut level_window_peak: f32 = 0.0;
+    let mut ever_had_signal = false;
+    let mut silent_warned = false;
     let mut buffer: VecDeque<f32> = VecDeque::new();
     let mut pre_speech: VecDeque<f32> =
         VecDeque::with_capacity(config.pre_speech_chunks * config.hop_size);
@@ -306,6 +316,30 @@ async fn run_vad_capture(
             // Silero ungated audio, and gating first zeroes quiet speech
             // onsets. The gate still applies to the recorded/streamed audio.
             let raw_mono = mono;
+
+            // Track the raw input level (pre-gate) for the UI meter and the
+            // no-audio warning. A flat meter / warning surfaces the silent-tap
+            // failure (denied permission, wrong device) that otherwise looks
+            // exactly like "listening but nothing happens".
+            let chunk_peak = raw_mono.iter().fold(0.0f32, |m, &s| m.max(s.abs()));
+            level_window_peak = level_window_peak.max(chunk_peak);
+            if chunk_peak > SILENCE_FLOOR {
+                ever_had_signal = true;
+            }
+            if last_level_emit.elapsed() >= Duration::from_millis(150) {
+                last_level_emit = Instant::now();
+                let _ = app.emit("audio-level", level_window_peak);
+                level_window_peak = 0.0;
+            }
+            if !ever_had_signal
+                && !silent_warned
+                && session_start.elapsed() >= Duration::from_secs(8)
+            {
+                warn!("No system audio detected 8s into capture — likely a permission or output-device issue");
+                let _ = app.emit("audio-silent", ());
+                silent_warned = true;
+            }
+
             let mono = apply_noise_gate(&raw_mono, config.noise_gate_threshold);
 
             if session_audio.len() + mono.len() <= max_session_samples {
