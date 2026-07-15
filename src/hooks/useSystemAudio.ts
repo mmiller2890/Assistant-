@@ -123,6 +123,9 @@ export function useSystemAudio() {
   const { isSupported, asrReady, isInitializing: isSttInitializing, init: initStt } =
     useSttStatus();
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Monotonic id for AI requests; processWithAI uses it to detect when a
+  // newer utterance has superseded an in-flight stream.
+  const aiRequestSeqRef = useRef(0);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isSavingRef = useRef<boolean>(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -630,6 +633,14 @@ export function useSystemAudio() {
       setRecordingProgress(0);
       setError("");
 
+      // Manual record supersedes any active session. Only one capture task
+      // can exist on the Rust side, so a running VAD session must be stopped
+      // first — otherwise the start below is rejected with "Capture already
+      // running" and the VAD session keeps picking up audio.
+      if (capturingRef.current) {
+        await invoke("stop_system_audio_capture");
+      }
+
       const deviceId =
         selectedAudioDevices.output.id !== "default"
           ? selectedAudioDevices.output.id
@@ -639,11 +650,14 @@ export function useSystemAudio() {
         (p) => p.id === selectedSttProvider.provider
       );
 
+      // The record button always means a manual take, regardless of which
+      // mode the current session was started in.
       await invoke<string>("start_system_audio_capture", {
-        vadConfig: vadConfig,
+        vadConfig: { ...vadConfig, enabled: false },
         deviceId: deviceId,
         streaming: providerConfig?.streaming === true,
       });
+      setIsContinuousMode(true);
     } catch (err) {
       console.error("Failed to start continuous recording:", err);
       setError(`Failed to start recording: ${err}`);
@@ -748,6 +762,13 @@ export function useSystemAudio() {
       }
 
       abortControllerRef.current = new AbortController();
+      const signal = abortControllerRef.current.signal;
+      // Latest-question-wins: each call supersedes any in-flight one. The
+      // signal cancels the fetch, and the request id stops a superseded
+      // stream from appending chunks that were already in flight — without
+      // both, concurrent utterances interleave into the same response text.
+      const requestId = ++aiRequestSeqRef.current;
+      const isCurrent = () => requestId === aiRequestSeqRef.current;
 
       try {
         setIsAIProcessing(true);
@@ -777,15 +798,18 @@ export function useSystemAudio() {
             history: previousMessages,
             userMessage: transcription,
             imagesBase64: [],
+            signal,
           })) {
+            if (!isCurrent()) return;
             fullResponse += chunk;
             setLastAIResponse((prev) => prev + chunk);
           }
         } catch (aiError: any) {
+          if (!isCurrent() || signal.aborted) return;
           setError(aiError.message || "Failed to get AI response");
         }
 
-        if (fullResponse) {
+        if (fullResponse && isCurrent()) {
           const timestamp = Date.now();
           const latestUtterance =
             utteranceTimestampsRef.current[
@@ -824,9 +848,14 @@ export function useSystemAudio() {
           }
         }
       } catch (err) {
-        setError("Failed to get AI response");
+        if (isCurrent() && !signal.aborted) {
+          setError("Failed to get AI response");
+        }
       } finally {
-        setIsAIProcessing(false);
+        // A superseded call must not clear the spinner for the active one.
+        if (isCurrent()) {
+          setIsAIProcessing(false);
+        }
       }
     },
     [
