@@ -15,20 +15,59 @@ use tauri_plugin_shell::ShellExt;
 use tracing::{error, warn};
 
 #[cfg(target_os = "macos")]
+/// Silero VAD contract: 4096-sample chunks of 16 kHz mono audio (256 ms).
 const SILERO_CHUNK_SAMPLES: usize = 4096;
+const SILERO_SAMPLE_RATE: usize = 16_000;
 
-fn get_silero_vad_decision(
+/// Linear resampler for the VAD path. The capture tap runs at the device rate
+/// (typically 48 kHz); Silero expects 16 kHz. Feeding device-rate audio in
+/// directly pitch-shifts it 3x and makes the speech probabilities garbage.
+fn resample_linear(input: &[f32], from_rate: usize, to_rate: usize) -> Vec<f32> {
+    if from_rate == to_rate || input.is_empty() {
+        return input.to_vec();
+    }
+    let out_len = (input.len() * to_rate / from_rate).max(1);
+    let step = (input.len() - 1) as f32 / (out_len - 1).max(1) as f32;
+    (0..out_len)
+        .map(|i| {
+            let pos = i as f32 * step;
+            let idx = pos as usize;
+            let frac = pos - idx as f32;
+            let a = input[idx];
+            let b = input[(idx + 1).min(input.len() - 1)];
+            a + (b - a) * frac
+        })
+        .collect()
+}
+
+/// Hysteresis thresholds mirroring the microphone path (@ricky0123/vad-react
+/// defaults): enter speech when probability rises above 0.5, only leave once
+/// it drops below 0.35. A single hard cutoff drops soft mid-sentence syllables
+/// and chops utterances at natural pauses.
+const SILERO_POSITIVE_THRESHOLD: f32 = 0.5;
+const SILERO_NEGATIVE_THRESHOLD: f32 = 0.35;
+
+/// Raw Silero speech probability for a 16 kHz chunk (max across frames), or
+/// None when Silero is unavailable and the threshold fallback should be used.
+fn get_silero_vad_probability(
     app: &AppHandle,
     samples: &[f32],
-) -> Option<bool> {
+) -> Option<f32> {
     #[cfg(target_os = "macos")]
     {
         if let Some(stt_state) = app.try_state::<crate::stt::SttState>() {
             if let Ok(frames) = stt_state.vad_process_samples(samples) {
-                return Some(frames.iter().any(|f| f.is_voice_active));
+                return Some(
+                    frames
+                        .iter()
+                        .map(|f| f.probability)
+                        .fold(0.0f32, f32::max),
+                );
             }
         }
     }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, samples);
     None
 }
 
@@ -62,7 +101,7 @@ impl Default for VadConfig {
             sensitivity_rms: 0.006, // Tuned for system audio which is quieter than mic speech
             peak_threshold: 0.020,  // Lower threshold to catch quiet video/call audio
             silence_chunks: 60,     // ~1.3s of silence before stopping (fewer false cuts)
-            min_speech_chunks: 5,   // ~0.11s - still filters clicks
+            min_speech_chunks: 12,  // ~0.26s - matches the mic path's minSpeechFrames
             pre_speech_chunks: 12,  // ~0.27s - enough to catch word start
             noise_gate_threshold: 0.0015, // Gentler gate for compressed system audio
             max_recording_duration_secs: 180, // 3 minutes default
@@ -189,7 +228,13 @@ async fn run_vad_capture(
         (sr as usize * config.max_recording_duration_secs as usize).min(sr as usize * 3600);
     let mut session_audio: Vec<f32> = Vec::new();
     let mut vad_accumulator: Vec<f32> = Vec::new();
-    let mut pending_silero_decision: Option<bool> = Some(false);
+    // macOS assumes silence until the first Silero result; elsewhere Silero
+    // never runs, so start at None to engage the threshold fallback.
+    let mut pending_silero_prob: Option<f32> = if cfg!(target_os = "macos") {
+        Some(0.0)
+    } else {
+        None
+    };
     let mut vad_hops_until_refresh: usize = 0;
     let mut utterance_start_time: f32 = 0.0;
 
@@ -205,32 +250,53 @@ async fn run_vad_capture(
                 }
             }
 
-            // Apply noise gate BEFORE VAD (critical for accuracy)
-            let mono = apply_noise_gate(&mono, config.noise_gate_threshold);
+            // Keep the raw samples for VAD: the mic path (vad-react) feeds
+            // Silero ungated audio, and gating first zeroes quiet speech
+            // onsets. The gate still applies to the recorded/streamed audio.
+            let raw_mono = mono;
+            let mono = apply_noise_gate(&raw_mono, config.noise_gate_threshold);
 
             if session_audio.len() + mono.len() <= max_session_samples {
                 session_audio.extend_from_slice(&mono);
             }
 
-            // Silero VAD processes 4096-sample chunks; accumulate hops.
+            // Silero VAD processes 256 ms chunks of 16 kHz audio. The tap runs
+            // at the device rate, so accumulate 256 ms of device-rate samples
+            // and resample down to Silero's expected 4096 @ 16 kHz.
             #[cfg(target_os = "macos")]
             {
-                vad_accumulator.extend_from_slice(&mono);
-                if vad_accumulator.len() >= SILERO_CHUNK_SAMPLES {
-                    let chunk: Vec<f32> = vad_accumulator.drain(..SILERO_CHUNK_SAMPLES).collect();
-                    pending_silero_decision = get_silero_vad_decision(&app, &chunk);
-                    vad_hops_until_refresh = SILERO_CHUNK_SAMPLES / config.hop_size;
+                let silero_device_chunk =
+                    (sr as usize * SILERO_CHUNK_SAMPLES) / SILERO_SAMPLE_RATE;
+                vad_accumulator.extend_from_slice(&raw_mono);
+                if vad_accumulator.len() >= silero_device_chunk {
+                    let chunk: Vec<f32> =
+                        vad_accumulator.drain(..silero_device_chunk).collect();
+                    let chunk_16k =
+                        resample_linear(&chunk, sr as usize, SILERO_SAMPLE_RATE);
+                    pending_silero_prob = get_silero_vad_probability(&app, &chunk_16k);
+                    vad_hops_until_refresh = silero_device_chunk / config.hop_size;
                 }
                 if vad_hops_until_refresh > 0 {
                     vad_hops_until_refresh -= 1;
                 }
             }
 
-            let is_speech = pending_silero_decision.unwrap_or_else(|| {
-                // Fallback to threshold VAD
-                let (rms, peak) = calculate_audio_metrics(&mono);
-                rms > config.sensitivity_rms || peak > config.peak_threshold
-            });
+            let is_speech = match pending_silero_prob {
+                // Mic-style hysteresis on the raw probability (see the
+                // threshold constants above).
+                Some(prob) => {
+                    if in_speech {
+                        prob >= SILERO_NEGATIVE_THRESHOLD
+                    } else {
+                        prob >= SILERO_POSITIVE_THRESHOLD
+                    }
+                }
+                None => {
+                    // Fallback to threshold VAD
+                    let (rms, peak) = calculate_audio_metrics(&mono);
+                    rms > config.sensitivity_rms || peak > config.peak_threshold
+                }
+            };
 
             if is_speech {
                 if !in_speech {
