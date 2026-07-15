@@ -47,6 +47,19 @@ fn resample_linear(input: &[f32], from_rate: usize, to_rate: usize) -> Vec<f32> 
 const SILERO_POSITIVE_THRESHOLD: f32 = 0.5;
 const SILERO_NEGATIVE_THRESHOLD: f32 = 0.35;
 
+/// Hysteresis decision on a raw Silero probability: enter speech only once the
+/// probability rises above the positive threshold, and stay in speech until it
+/// drops below the (lower) negative threshold. The gap between the two
+/// thresholds is what keeps soft mid-utterance dips from prematurely ending an
+/// utterance — a single hard cutoff chops speech at every natural pause.
+fn silero_is_speech(in_speech: bool, prob: f32) -> bool {
+    if in_speech {
+        prob >= SILERO_NEGATIVE_THRESHOLD
+    } else {
+        prob >= SILERO_POSITIVE_THRESHOLD
+    }
+}
+
 /// Raw Silero speech probability for a 16 kHz chunk (max across frames), or
 /// None when Silero is unavailable and the threshold fallback should be used.
 fn get_silero_vad_probability(
@@ -144,6 +157,18 @@ pub async fn start_system_audio_capture(
         *vad_cfg = config;
     }
 
+    // Only monitor for default-output-device switches when we're actually
+    // tapping the default device (not a user-pinned one). Captured before the
+    // tap is built, so it reflects the device the tap binds to.
+    let on_default_device = device_id
+        .as_deref()
+        .map_or(true, |d| d.is_empty() || d == "default");
+    let monitor_output_uid = if on_default_device {
+        crate::speaker::default_output_uid()
+    } else {
+        None
+    };
+
     let input = SpeakerInput::new_with_device(device_id).map_err(|e| {
         error!("Failed to create speaker input: {}", e);
         format!("Failed to access system audio: {}", e)
@@ -177,7 +202,7 @@ pub async fn start_system_audio_capture(
     let state_clone = app.state::<crate::AudioState>();
     let task = tokio::spawn(async move {
         let session_path = if vad_config.enabled {
-            run_vad_capture(app_clone.clone(), stream, sr, vad_config).await
+            run_vad_capture(app_clone.clone(), stream, sr, vad_config, monitor_output_uid).await
         } else {
             run_continuous_capture(app_clone.clone(), stream, sr, vad_config).await;
             None
@@ -207,8 +232,14 @@ async fn run_vad_capture(
     stream: impl StreamExt<Item = f32> + Unpin,
     sr: u32,
     config: VadConfig,
+    // When Some, the UID of the default output device this capture bound to.
+    // If it changes mid-session, we emit `audio-device-changed` and stop so
+    // the frontend can restart on the new device instead of silently tapping
+    // the old one.
+    monitor_output_uid: Option<String>,
 ) -> Option<std::path::PathBuf> {
     let mut stream = stream;
+    let mut last_device_check = Instant::now();
     let mut buffer: VecDeque<f32> = VecDeque::new();
     let mut pre_speech: VecDeque<f32> =
         VecDeque::with_capacity(config.pre_speech_chunks * config.hop_size);
@@ -239,6 +270,27 @@ async fn run_vad_capture(
     let mut utterance_start_time: f32 = 0.0;
 
     while let Some(sample) = stream.next().await {
+        // Detect a mid-session default-output-device switch (checked ~1x/sec so
+        // the CoreAudio query stays off the hot path). On a switch the tap is
+        // still bound to the old device and would capture silence, so stop and
+        // let the frontend restart on the new device.
+        if let Some(ref bound_uid) = monitor_output_uid {
+            if last_device_check.elapsed() >= Duration::from_secs(1) {
+                last_device_check = Instant::now();
+                if let Some(current_uid) = crate::speaker::default_output_uid() {
+                    if &current_uid != bound_uid {
+                        warn!(
+                            "Default output device changed mid-capture ({} -> {}); \
+                             restarting on the new device",
+                            bound_uid, current_uid
+                        );
+                        let _ = app.emit("audio-device-changed", ());
+                        break;
+                    }
+                }
+            }
+        }
+
         buffer.push_back(sample);
 
         // Process in fixed chunks for VAD analysis
@@ -282,15 +334,8 @@ async fn run_vad_capture(
             }
 
             let is_speech = match pending_silero_prob {
-                // Mic-style hysteresis on the raw probability (see the
-                // threshold constants above).
-                Some(prob) => {
-                    if in_speech {
-                        prob >= SILERO_NEGATIVE_THRESHOLD
-                    } else {
-                        prob >= SILERO_POSITIVE_THRESHOLD
-                    }
-                }
+                // Mic-style hysteresis on the raw probability.
+                Some(prob) => silero_is_speech(in_speech, prob),
                 None => {
                     // Fallback to threshold VAD
                     let (rms, peak) = calculate_audio_metrics(&mono);
@@ -910,4 +955,66 @@ pub fn get_output_devices() -> Result<Vec<AudioDevice>, String> {
         error!("Failed to get output devices: {}", e);
         format!("Failed to get output devices: {}", e)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resample_is_identity_when_rates_match() {
+        let input = vec![0.1, 0.2, 0.3, 0.4];
+        assert_eq!(resample_linear(&input, 16_000, 16_000), input);
+    }
+
+    #[test]
+    fn resample_handles_empty_input() {
+        assert!(resample_linear(&[], 48_000, 16_000).is_empty());
+    }
+
+    #[test]
+    fn resample_downsamples_length_by_the_rate_ratio() {
+        // 48 kHz -> 16 kHz is a 3:1 decimation. 4096 in -> ~1365 out.
+        let input = vec![0.0f32; 4096];
+        let out = resample_linear(&input, 48_000, 16_000);
+        assert_eq!(out.len(), 4096 * 16_000 / 48_000);
+    }
+
+    #[test]
+    fn resample_upsamples_length_by_the_rate_ratio() {
+        // 8 kHz -> 16 kHz doubles the frame count (the sub-16k truncation case).
+        let input = vec![0.0f32; 1000];
+        let out = resample_linear(&input, 8_000, 16_000);
+        assert_eq!(out.len(), 2000);
+    }
+
+    #[test]
+    fn resample_preserves_endpoints_and_stays_in_range() {
+        // A ramp from 0..1 should still start at 0 and end at ~1 after resampling.
+        let input: Vec<f32> = (0..48).map(|i| i as f32 / 47.0).collect();
+        let out = resample_linear(&input, 48_000, 16_000);
+        assert!((out[0] - 0.0).abs() < 1e-6);
+        assert!((out[out.len() - 1] - 1.0).abs() < 1e-6);
+        for &v in &out {
+            assert!((0.0..=1.0).contains(&v));
+        }
+    }
+
+    #[test]
+    fn hysteresis_requires_positive_threshold_to_enter_speech() {
+        // Not currently in speech: must exceed the positive threshold.
+        assert!(!silero_is_speech(false, 0.34));
+        assert!(!silero_is_speech(false, 0.49)); // above negative but below positive
+        assert!(silero_is_speech(false, 0.50));
+        assert!(silero_is_speech(false, 0.90));
+    }
+
+    #[test]
+    fn hysteresis_holds_speech_until_below_negative_threshold() {
+        // Already in speech: only a drop below the negative threshold ends it.
+        assert!(silero_is_speech(true, 0.40)); // between thresholds -> keep going
+        assert!(silero_is_speech(true, 0.35));
+        assert!(!silero_is_speech(true, 0.34));
+        assert!(!silero_is_speech(true, 0.10));
+    }
 }

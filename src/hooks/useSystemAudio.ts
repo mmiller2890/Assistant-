@@ -3,7 +3,12 @@ import { useWindowResize, useGlobalShortcuts } from ".";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useApp } from "@/contexts";
-import { fetchSTT, fetchAIResponse, isLikelyQuestion } from "@/lib/functions";
+import {
+  fetchSTT,
+  fetchAIResponse,
+  isLikelyQuestion,
+  buildAIHistory,
+} from "@/lib/functions";
 import { useSttStatus } from "./useSttStatus";
 import {
   DEFAULT_QUICK_ACTIONS,
@@ -20,11 +25,7 @@ import {
   isMacOS,
   isWindows,
 } from "@/lib";
-import {
-  ChatConversation,
-  ChatMessage,
-  Message,
-} from "@/types/completion";
+import { ChatConversation, Message } from "@/types/completion";
 import { useSpeakerLabels } from "./system-audio/useSpeakerLabels";
 import { useSttStreamSocket } from "./system-audio/useSttStreamSocket";
 
@@ -55,26 +56,6 @@ const DEFAULT_VAD_CONFIG: VadConfig = {
   emit_chunks: false,
   chunk_interval_ms: 1000,
 };
-
-/// Cap on how many prior messages are sent as AI context. Without a window,
-/// an hour-long session grows the prompt without bound (cost, latency, and
-/// eventually context overflow).
-const MAX_AI_HISTORY_MESSAGES = 12;
-
-/// Conversation state stores messages newest-first, but the AI needs them in
-/// chronological order. Take the most recent window, sorted oldest-first by
-/// timestamp. (Before this helper, the full history was sent newest-first —
-/// the model saw the conversation reversed.)
-function buildAIHistory(
-  messages: ChatMessage[],
-  excludeMessageId?: string
-): Message[] {
-  return messages
-    .filter((m) => m.id !== excludeMessageId)
-    .slice(0, MAX_AI_HISTORY_MESSAGES)
-    .sort((a, b) => a.timestamp - b.timestamp)
-    .map((m) => ({ role: m.role, content: m.content }));
-}
 
 // Conversation/message shapes are the shared app types; re-exported here for
 // existing importers of this module.
@@ -162,6 +143,7 @@ export function useSystemAudio() {
   const systemPromptRef = useRef(systemPrompt);
   const contextContentRef = useRef(contextContent);
   const conversationMessagesRef = useRef(conversation.messages);
+  const vadConfigRef = useRef(vadConfig);
   // `processWithAI` is invoked from the `speech-detected` listener and the
   // streaming socket, both registered once with empty/stable deps. They capture
   // their closure on the first render — when `selectedAIProvider` is still the
@@ -185,6 +167,7 @@ export function useSystemAudio() {
   systemPromptRef.current = systemPrompt;
   contextContentRef.current = contextContent;
   conversationMessagesRef.current = conversation.messages;
+  vadConfigRef.current = vadConfig;
 
   // Handles a streaming provider's final transcript. Ref-backed because the
   // socket handlers are created once per socket; assigned below once the
@@ -832,6 +815,42 @@ export function useSystemAudio() {
         });
       } catch (err) {
         console.warn("Failed to listen for answer-last shortcut:", err);
+      }
+    })();
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+
+  // The Rust VAD capture emits `audio-device-changed` when the default output
+  // device switches mid-session (e.g. AirPods plugged in) — the tap would
+  // otherwise keep capturing silence. Transparently restart on the new device.
+  // Registered once; reads everything through refs.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      try {
+        unlisten = await listen("audio-device-changed", async () => {
+          if (!capturingRef.current) return;
+          setError("Audio device changed — reconnecting…");
+          try {
+            await invoke("stop_system_audio_capture");
+            const providerConfig = allSttProvidersRef.current.find(
+              (p) => p.id === selectedSttProviderRef.current.provider
+            );
+            await invoke<string>("start_system_audio_capture", {
+              vadConfig: vadConfigRef.current,
+              deviceId: null, // follow the new default device
+              streaming: providerConfig?.streaming === true,
+            });
+            setError("");
+          } catch (err) {
+            console.error("Failed to reconnect after device change:", err);
+            setError(`Audio device changed and reconnecting failed: ${err}`);
+          }
+        });
+      } catch (err) {
+        console.warn("Failed to listen for audio-device-changed:", err);
       }
     })();
     return () => {
