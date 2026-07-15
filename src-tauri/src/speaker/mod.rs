@@ -64,6 +64,21 @@ pub(crate) fn list_output_devices() -> Result<Vec<AudioDevice>> {
     Ok(vec![])
 }
 
+/// UID of the current default output device, or None where it can't be
+/// determined. Used by the capture loop to detect a mid-session output-device
+/// switch. Only implemented for macOS today; other platforms return None
+/// (no monitoring), which is safe — it just disables the auto-restart.
+pub(crate) fn default_output_uid() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::default_output_uid()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
 // Assistant speaker input and stream
 pub struct SpeakerInput {
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]

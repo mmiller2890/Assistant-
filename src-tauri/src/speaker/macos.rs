@@ -134,6 +134,16 @@ fn find_output_device_by_uid(uid: &str) -> Option<ca::Device> {
     None
 }
 
+/// UID of the current default output device, if it can be read. The capture
+/// loop polls this to notice a mid-session device switch (e.g. plugging in
+/// AirPods): the tap stays bound to the device it was built on, so after a
+/// switch it would silently capture nothing.
+pub(crate) fn default_output_uid() -> Option<String> {
+    let device = ca::System::default_output_device().ok()?;
+    let uid = device.uid().ok()?;
+    Some(uid.to_string())
+}
+
 pub struct SpeakerInput {
     tap: ca::TapGuard, // Assuming ca::TapGuard from core-audio-rs
     agg_desc: arc::Retained<cf::DictionaryOf<cf::String, cf::Type>>,
