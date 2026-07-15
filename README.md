@@ -2,7 +2,7 @@
 
 A lightning-fast, privacy-first AI assistant that works seamlessly during meetings, interviews, and conversations without anyone knowing.
 
-This is a **local-only fork** of the open-source [Pluely](https://github.com/iamsrikanthnani/pluely) project. The hosted cloud API, license activation, auto-updater, and all telemetry have been removed. It runs entirely against your own configured providers — including built-in support for **Ollama** and, on macOS Apple Silicon, **FluidAudio** in-process ASR as the default speech-to-text (no Python server required), with **Whisper**/**Parakeet**/**Nemotron** as advanced local options.
+This is a **local-only fork** of the open-source [Pluely](https://github.com/iamsrikanthnani/pluely) project. The hosted cloud API, license activation, auto-updater, and all telemetry have been removed. It runs entirely against your own configured providers — including built-in support for **Ollama** and, on macOS Apple Silicon, **FluidAudio** in-process speech-to-text with **Silero VAD**, **speaker diarization**, and **ITN** (no Python server required), plus **Whisper**/**Parakeet**/**Nemotron** as advanced local options.
 
 ## ✨ Features
 
@@ -11,7 +11,12 @@ This is a **local-only fork** of the open-source [Pluely](https://github.com/iam
 - **Ollama by Default** — works out of the box against a local Ollama instance; no API keys required. Detects installed models automatically.
 - **Local STT** — **FluidAudio** in-process ASR (CoreML, Apple Silicon) is the default and needs no server. Optionally run Whisper (faster-whisper) or any mlx-audio ASR model (Parakeet TDT v3, Nemotron, etc.) locally for advanced/fully-offline speech-to-text.
 - **Real-Time Streaming STT** — local providers that expose a WebSocket endpoint (e.g. Parakeet TDT v3 via `local-parakeet`) support live partial transcriptions. Text appears as you speak, not after. FluidAudio streams final text via Rust events but does **not** expose live partials (text is delivered only when the utterance ends).
-- **Audio Capture** — system + microphone audio transcription with VAD.
+- **Audio Capture** — system-audio capture via a CoreAudio process tap (no virtual audio device needed) plus microphone input. Speech is segmented by **Silero VAD** with the same probability hysteresis the mic path uses, with an amplitude-threshold fallback on platforms without Silero.
+- **Question-Gated Answers** — every captured utterance lands in the transcript, but only utterances that look like questions trigger an automatic AI answer. Anything the gate skips can be answered on demand with the **answer-last shortcut** (`Cmd+Shift+Enter`). A newer question supersedes an in-flight answer cleanly.
+- **Speaker Diarization** — when a system-audio session ends, FluidAudio's offline diarizer labels who said what in the transcript.
+- **ITN Post-Processing** — transcriptions are normalized to written form before reaching the AI ("two hundred fifty dollars" → "$250").
+- **Manual Recording** — alongside automatic VAD, press record for a manual take; it supersedes any active listening session, and stop-and-send transcribes the whole take at once.
+- **Bounded AI Context** — the AI receives the most recent conversation window (12 messages, chronological), so hour-long sessions don't grow the prompt without limit.
 - **Screenshot Analysis** — capture and send screenshots to your vision-capable model.
 - **System Prompts** — create, edit, and switch AI behavior profiles.
 - **Customizable** — autostart, app-icon visibility, always-on-top, cursor style, global shortcuts.
@@ -80,9 +85,11 @@ npm run tauri build
 
 ### Default STT: FluidAudio (macOS Apple Silicon, no server)
 
-FluidAudio runs in-process via the `fluidaudio-rs` Rust crate and is the default STT provider on macOS 14+ Apple Silicon. It uses CoreML inference and requires no Python server, venv, or external binary. Select `local-fluidaudio` in **Dev Space → STT Providers** and it works immediately.
+FluidAudio runs in-process via the `fluidaudio-rs` Rust crate and is the default STT provider on macOS 14+ Apple Silicon. It uses CoreML inference and requires no Python server, venv, or external binary. Select `local-fluidaudio` in **Dev Space → STT Providers** and it works immediately. On first run it downloads the speech models (~600 MB+ for ASR, plus small VAD and diarization models); the init overlay stays up until they're ready.
 
-**How it works:** FluidAudio uses a batch STT path. When VAD detects the end of an utterance, the captured WAV is sent to the Rust `stt_transcribe_speech` command and the final text is returned. It does not expose live partial transcriptions while you speak. For live partials, use `local-parakeet` (advanced, requires the mlx-audio server) instead.
+**The pipeline:** the CoreAudio tap captures system audio at the device rate → Silero VAD (resampled to 16 kHz, enter/exit hysteresis at 0.5/0.35) segments utterances → each utterance is transcribed by the Parakeet TDT model with a fresh decoder state → ITN normalizes the text → the question gate decides whether to auto-answer → on session end, the offline diarizer labels speakers in the transcript. FluidAudio does not expose live partial transcriptions while you speak; for live partials, use `local-parakeet` (advanced, requires the mlx-audio server) instead.
+
+> **Note:** `fluidaudio-rs` is currently pinned to an upstream git revision in `src-tauri/Cargo.toml` because the published crates.io `0.14.1` release predates the TDT decoder-state fix (repeated transcriptions degrade to "." on that release). The pin can move back to a crates.io version once a release containing upstream PR #15 is published.
 
 ### Advanced Local STT Servers
 
@@ -147,9 +154,10 @@ src/
   components/         # Shared React components
   config/             # Constants: providers, storage keys, shortcuts
   contexts/           # React context (app state)
-  hooks/              # Custom hooks
+  hooks/              # Custom hooks (useSystemAudio composes the capture session)
+    system-audio/     # Extracted session hooks: STT stream socket, speaker labels
   layouts/            # Page layouts
-  lib/                # Core logic: AI/STT functions, storage, database
+  lib/                # Core logic: AI/STT functions, question gate, storage, database
   pages/              # Route pages
   routes/             # React Router config
   types/              # TypeScript types
@@ -157,10 +165,27 @@ src-tauri/
   src/                # Rust source (window, capture, shortcuts, speaker, STT/fluidaudio)
   capabilities/        # Tauri permissions (HTTP scopes, plugin permissions)
   tauri.conf.json     # Tauri config
-  Cargo.toml           # Rust dependencies (includes fluidaudio-rs)
+  Cargo.toml           # Rust dependencies (fluidaudio-rs, git-pinned)
+docs/
+  shipping-plan.md    # Path to a signed, installable .dmg (npm is dev-only)
+  superpowers/plans/  # Code-level implementation plan for the installable release
 ```
 
 See [AGENTS.md](./AGENTS.md) for detailed architecture notes.
+
+## ⌨️ Global Shortcuts (macOS defaults)
+
+| Shortcut | Action |
+|---|---|
+| `Cmd+Shift+M` | Toggle system-audio capture (listening) |
+| `Cmd+Shift+Enter` | Answer the last captured utterance (even if the question gate skipped it) |
+| `Cmd+Shift+A` | Voice input (microphone) |
+| `Cmd+Shift+S` | Screenshot |
+| `Cmd+Shift+D` | Toggle dashboard |
+| `Cmd+\` | Show/hide the main window |
+| `Cmd+Shift+I` | Refocus input box |
+
+All shortcuts are rebindable in the dashboard (Windows/Linux use `Ctrl` in place of `Cmd`).
 
 ## 🧪 Development
 
@@ -177,7 +202,7 @@ GPL-3.0 — inherited from the original [Pluely](https://github.com/iamsrikanthn
 ## 🙏 Acknowledgements
 
 - [Pluely](https://github.com/iamsrikanthnani/pluely) — the original open-source project by [Srikanth Nani](https://github.com/iamsrikanthnani)
-- [fluidaudio-rs](https://crates.io/crates/fluidaudio) — in-process CoreML speech-to-text for macOS Apple Silicon
+- [fluidaudio-rs](https://github.com/FluidInference/fluidaudio-rs) — in-process CoreML speech-to-text, VAD, and diarization for macOS Apple Silicon
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — CTranslate2-based Whisper inference
 - [mlx-audio](https://github.com/Blaizzy/mlx-audio) — MLX audio models for Apple Silicon
 - [parakeet-mlx](https://github.com/senstella/parakeet-mlx) — Parakeet TDT streaming ASR for MLX
