@@ -45,17 +45,29 @@ Because the overlay is **invisible to screen recording and screen sharing**, it 
 
 ## 🚀 Quick Start
 
-> **Requirements:** [Node.js](https://nodejs.org/) 18+, the [Rust](https://www.rust-lang.org/tools/install) stable toolchain, and the [Tauri 2 system prerequisites](https://tauri.app/start/prerequisites/). For the zero-setup local speech engine, you'll want **macOS 14+ on Apple Silicon** (everything else still works with a cloud or self-hosted STT provider).
+> **No prebuilt download yet** — Assistant is built from source (a signed, drag-to-Applications installer is [on the roadmap](docs/shipping-plan.md)). You'll need a dev toolchain, but you don't have to hunt for it: `npm run setup` checks everything and tells you exactly what's missing.
+
+**Prerequisites**
+
+| Tool | Notes |
+|---|---|
+| [Node.js](https://nodejs.org/) 18+ | Frontend and tooling |
+| [Rust](https://rustup.rs) (stable) | Auto-installed from `rust-toolchain.toml` on the first build |
+| [Tauri 2 system deps](https://tauri.app/start/prerequisites/) | Platform build tools / webview libraries |
+| **Xcode 16** *(macOS only)* | The local speech engine compiles a **Swift 6** package during the build — older toolchains fail with a confusing error |
+
+For the zero-setup local speech engine you'll want **macOS 14+ on Apple Silicon**; everything else runs fine with a cloud or self-hosted STT provider.
 
 ```bash
 git clone https://github.com/mmiller2890/Assistant-.git
 cd Assistant-
 npm install
-npm run tauri dev      # develop
+npm run setup          # verify your toolchain (Node, Rust, Xcode/Swift, …)
+npm run tauri dev      # develop — the first build takes a few minutes
 npm run tauri build    # produce a native app
 ```
 
-On first launch, open the dashboard with **`⌘⇧D`** (`Ctrl+Shift+D` on Windows/Linux) and connect an AI provider — that's the only required step.
+`npm run setup` also runs automatically before every `tauri` command, so a missing tool is caught up front with a clear fix instead of a cryptic failure deep in the build. On first launch, open the dashboard with **`⌘⇧D`** (`Ctrl+Shift+D` on Windows/Linux) and connect an AI provider — the only required step.
 
 ## 🧠 Connect an AI
 
