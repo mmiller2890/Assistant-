@@ -1155,15 +1155,57 @@ export function useSystemAudio() {
     }
   }, []);
 
+  // Apply a mode change (VAD <-> manual) to the RUNNING session. The Rust
+  // capture task snapshots its config at start, so without a restart the
+  // toggle only changed a setting: switching to manual left the VAD session
+  // listening, and switching to VAD left the session armed-but-idle while
+  // the UI claimed to be listening.
+  const prevVadEnabledRef = useRef(vadConfig.enabled);
   useEffect(() => {
-    if (capturing) {
-      setIsContinuousMode(!vadConfig.enabled);
+    const modeChanged = prevVadEnabledRef.current !== vadConfig.enabled;
+    prevVadEnabledRef.current = vadConfig.enabled;
 
-      if (!vadConfig.enabled) {
-        setIsRecordingInContinuousMode(false);
-      }
+    if (!capturing) {
+      return;
     }
-  }, [vadConfig.enabled, capturing]);
+
+    setIsContinuousMode(!vadConfig.enabled);
+    if (!vadConfig.enabled) {
+      setIsRecordingInContinuousMode(false);
+    }
+
+    if (!modeChanged) {
+      return;
+    }
+
+    (async () => {
+      try {
+        // Stop whatever session is running (no-op if manual mode was armed
+        // with no active task).
+        await invoke("stop_system_audio_capture");
+
+        if (vadConfig.enabled) {
+          // Switching to VAD: start listening immediately.
+          const deviceId =
+            selectedAudioDevices.output.id !== "default"
+              ? selectedAudioDevices.output.id
+              : null;
+          const providerConfig = allSttProvidersRef.current.find(
+            (p) => p.id === selectedSttProviderRef.current.provider
+          );
+          await invoke<string>("start_system_audio_capture", {
+            vadConfig: vadConfig,
+            deviceId: deviceId,
+            streaming: providerConfig?.streaming === true,
+          });
+        }
+        // Switching to manual: stay armed; the Record button starts a take.
+      } catch (err) {
+        console.error("Failed to apply capture mode change:", err);
+        setError(`Failed to switch capture mode: ${err}`);
+      }
+    })();
+  }, [vadConfig, capturing, selectedAudioDevices.output.id]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

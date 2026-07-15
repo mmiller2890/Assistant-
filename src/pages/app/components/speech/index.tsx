@@ -165,8 +165,14 @@ export const SystemAudio = (props: useSystemAudioType) => {
     if (error && !setupRequired)
       return <AlertCircleIcon className="text-red-500" />;
     if (isProcessing) return <LoaderIcon className="animate-spin" />;
-    if (capturing)
+    if (capturing) {
+      // Manual mode armed-but-idle is not "listening" — don't pulse green
+      // unless audio is actually being captured.
+      if (!isVadMode && !isRecordingInContinuousMode) {
+        return <AudioLinesIcon className="text-amber-500" />;
+      }
       return <AudioLinesIcon className="text-green-500 animate-pulse" />;
+    }
     return <HeadphonesIcon />;
   };
 
@@ -174,7 +180,14 @@ export const SystemAudio = (props: useSystemAudioType) => {
     if (setupRequired) return "Setup required - Click for instructions";
     if (error && !setupRequired) return `Error: ${error}`;
     if (isProcessing) return "Transcribing audio...";
-    if (capturing) return "Stop system audio capture";
+    if (capturing) {
+      if (!isVadMode && !isRecordingInContinuousMode) {
+        return "Manual mode (not listening) — press Start Recording, or switch to Auto to listen continuously";
+      }
+      return isVadMode
+        ? "Listening (auto) — click to stop"
+        : "Recording (manual) — click to stop";
+    }
     return "Start system audio capture";
   };
 
