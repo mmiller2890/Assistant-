@@ -1,15 +1,5 @@
 export const SPEECH_TO_TEXT_PROVIDERS = [
   {
-    id: "local-parakeet",
-    name: "Local Parakeet TDT v3 (MLX, Apple Silicon)",
-    curl: `curl -X POST "http://localhost:8001/v1/audio/transcriptions" \\
-      -F "file={{AUDIO}}" \\
-      -F "model={{MODEL}}"`,
-    responseContentPath: "text",
-    streaming: true,
-    streamingUrl: "ws://localhost:8001/v1/audio/stream",
-  },
-  {
     id: "local-fluidaudio",
     name: "Local FluidAudio (macOS Apple Silicon, CoreML)",
     curl: "",
@@ -18,22 +8,14 @@ export const SPEECH_TO_TEXT_PROVIDERS = [
     platform: "macos-apple-silicon",
   },
   {
-    id: "local-nemotron",
-    name: "Local Nemotron ASR (MLX, Apple Silicon)",
-    curl: `curl -X POST "http://localhost:8001/v1/audio/transcriptions" \\
-      -F "file={{AUDIO}}" \\
-      -F "model={{MODEL}}"`,
-    responseContentPath: "text",
-    streaming: false,
-  },
-  {
     id: "local-whisper",
-    name: "Local Whisper (faster-whisper-server)",
+    name: "Local Whisper Turbo (faster-whisper)",
     curl: `curl -X POST "http://localhost:8000/v1/audio/transcriptions" \\
       -F "file={{AUDIO}}" \\
       -F "model={{MODEL}}"`,
     responseContentPath: "text",
     streaming: false,
+    platform: "windows-linux",
   },
   {
     id: "openai-whisper",

@@ -134,6 +134,16 @@ fn find_output_device_by_uid(uid: &str) -> Option<ca::Device> {
     None
 }
 
+/// UID of the current default output device, if it can be read. The capture
+/// loop polls this to notice a mid-session device switch (e.g. plugging in
+/// AirPods): the tap stays bound to the device it was built on, so after a
+/// switch it would silently capture nothing.
+pub(crate) fn default_output_uid() -> Option<String> {
+    let device = ca::System::default_output_device().ok()?;
+    let uid = device.uid().ok()?;
+    Some(uid.to_string())
+}
+
 pub struct SpeakerInput {
     tap: ca::TapGuard, // Assuming ca::TapGuard from core-audio-rs
     agg_desc: arc::Retained<cf::DictionaryOf<cf::String, cf::Type>>,
@@ -166,6 +176,7 @@ struct Ctx {
     current_sample_rate: Arc<AtomicU32>,
     consecutive_drops: Arc<AtomicU32>,
     should_terminate: Arc<AtomicBool>,
+    channel_count: usize,
 }
 
 impl SpeakerInput {
@@ -290,6 +301,8 @@ impl SpeakerInput {
 
         let current_sample_rate = Arc::new(AtomicU32::new(asbd.sample_rate as u32));
 
+        let channel_count = format.channel_count() as usize;
+
         let mut ctx = Box::new(Ctx {
             format,
             producer,
@@ -297,6 +310,7 @@ impl SpeakerInput {
             current_sample_rate: current_sample_rate.clone(),
             consecutive_drops: Arc::new(AtomicU32::new(0)),
             should_terminate: Arc::new(AtomicBool::new(false)),
+            channel_count: channel_count.max(1),
         });
 
         let device = self.start_device(&mut ctx).unwrap();
@@ -313,8 +327,19 @@ impl SpeakerInput {
 }
 
 fn process_audio_data(ctx: &mut Ctx, data: &[f32]) {
-    let buffer_size = data.len();
-    let pushed = ctx.producer.push_slice(data);
+    let mono_data: Vec<f32> = if ctx.channel_count <= 1 {
+        data.to_vec()
+    } else {
+        let mut mono = Vec::with_capacity(data.len() / ctx.channel_count);
+        for frame in data.chunks(ctx.channel_count) {
+            let sum: f32 = frame.iter().sum();
+            mono.push(sum / ctx.channel_count as f32);
+        }
+        mono
+    };
+
+    let buffer_size = mono_data.len();
+    let pushed = ctx.producer.push_slice(&mono_data);
 
     // Consistent buffer overflow handling
     if pushed < buffer_size {

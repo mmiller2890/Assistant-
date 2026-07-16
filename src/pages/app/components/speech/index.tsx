@@ -6,6 +6,7 @@ import {
   PopoverContent,
   ScrollArea,
   SttInitOverlay,
+  Markdown,
 } from "@/components";
 import {
   HeadphonesIcon,
@@ -15,6 +16,8 @@ import {
   CameraIcon,
   PlusIcon,
   XIcon,
+  FileTextIcon,
+  Loader2,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { ModeSwitcher } from "./ModeSwitcher";
@@ -68,6 +71,13 @@ export const SystemAudio = (props: useSystemAudioType) => {
     ignoreContinuousRecording,
     scrollAreaRef,
     isSttInitializing,
+    isLabelingSpeakers,
+    currentSpeaker,
+    audioLevel,
+    noAudioDetected,
+    sessionSummary,
+    isSummarizing,
+    dismissSummary,
   } = props;
 
   const { hasActiveLicense, supportsImages } = useApp();
@@ -163,8 +173,14 @@ export const SystemAudio = (props: useSystemAudioType) => {
     if (error && !setupRequired)
       return <AlertCircleIcon className="text-destructive" />;
     if (isProcessing) return <LoaderIcon className="animate-spin" />;
-    if (capturing)
+    if (capturing) {
+      // Manual mode armed-but-idle is not "listening" — don't pulse
+      // unless audio is actually being captured.
+      if (!isVadMode && !isRecordingInContinuousMode) {
+        return <AudioLinesIcon className="text-warn" />;
+      }
       return <AudioLinesIcon className="text-primary animate-pulse" />;
+    }
     return <HeadphonesIcon />;
   };
 
@@ -172,7 +188,14 @@ export const SystemAudio = (props: useSystemAudioType) => {
     if (setupRequired) return "Setup required - Click for instructions";
     if (error && !setupRequired) return `Error: ${error}`;
     if (isProcessing) return "Transcribing audio...";
-    if (capturing) return "Stop system audio capture";
+    if (capturing) {
+      if (!isVadMode && !isRecordingInContinuousMode) {
+        return "Manual mode (not listening) — press Start Recording, or switch to Auto to listen continuously";
+      }
+      return isVadMode
+        ? "Listening (auto) — click to stop"
+        : "Recording (manual) — click to stop";
+    }
     return "Start system audio capture";
   };
 
@@ -341,6 +364,42 @@ export const SystemAudio = (props: useSystemAudioType) => {
                   />
                 ) : (
                   <>
+                    {/* Live input-level meter + no-audio hint (VAD listening) */}
+                    {capturing && isVadMode && (
+                      <div className="px-1 pb-2 space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
+                            Input
+                          </span>
+                          <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                            <div
+                              className={cn(
+                                "h-full rounded-full transition-[width] duration-100",
+                                noAudioDetected ? "bg-amber-500" : "bg-green-500"
+                              )}
+                              style={{
+                                width: `${Math.min(
+                                  100,
+                                  Math.round((audioLevel ?? 0) * 100 * 3)
+                                )}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                        {noAudioDetected && (
+                          <p className="text-[10px] text-amber-600 dark:text-amber-500 leading-snug">
+                            No system audio detected. Make sure something is
+                            playing, and that Assistant has permission in{" "}
+                            <span className="font-medium">
+                              System Settings → Privacy &amp; Security → Screen
+                              &amp; System Audio Recording
+                            </span>
+                            .
+                          </p>
+                        )}
+                      </div>
+                    )}
+
                     {/* Recording Panel */}
                     <RecordingPanel
                       isVadMode={isVadMode}
@@ -366,7 +425,44 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       setConversationMode={setConversationMode}
                       partialTranscription={partialTranscription}
                       isStreaming={isStreaming}
+                      isLabelingSpeakers={isLabelingSpeakers}
+                      currentSpeaker={currentSpeaker}
                     />
+
+                    {/* Session Summary (post-capture) */}
+                    {(isSummarizing || sessionSummary) && (
+                      <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <FileTextIcon className="w-3.5 h-3.5 text-primary" />
+                            <h4 className="text-xs font-medium">
+                              Session Summary
+                            </h4>
+                          </div>
+                          {sessionSummary && !isSummarizing && (
+                            <button
+                              onClick={dismissSummary}
+                              title="Dismiss summary"
+                              className="text-muted-foreground/60 hover:text-muted-foreground"
+                            >
+                              <XIcon className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        {isSummarizing && !sessionSummary ? (
+                          <div className="flex items-center gap-2 py-1">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                            <span className="text-xs text-muted-foreground">
+                              Summarizing session…
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="prose prose-sm max-w-none dark:prose-invert text-[11px]">
+                            <Markdown>{sessionSummary}</Markdown>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Settings Panel */}
                     <SettingsPanel

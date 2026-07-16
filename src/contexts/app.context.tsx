@@ -6,6 +6,22 @@ import {
 } from "@/config";
 import { getPlatform, safeLocalStorage, trackAppStart, isMacOS } from "@/lib";
 import { getShortcutsConfig } from "@/lib/storage";
+import { saveSecret, getSecret } from "@/lib/storage/secure-secrets";
+
+// Keychain keys for the selected providers' secret variables (API keys, etc.).
+const AI_PROVIDER_SECRET_KEY = "selected_ai_provider_variables";
+const STT_PROVIDER_SECRET_KEY = "selected_stt_provider_variables";
+
+// Provider variable names are stored/compared uppercase.
+function uppercaseKeys(
+  vars: Record<string, unknown>
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(vars)) {
+    out[k.toUpperCase()] = v as string;
+  }
+  return out;
+}
 import {
   getCustomizableState,
   setCustomizableState,
@@ -112,7 +128,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [selectedSttProvider, setSelectedSttProvider] = useState<{
     provider: string;
     variables: Record<string, string>;
-  }>({ provider: "local-fluidaudio", variables: {} });
+  }>({ provider: isMacOS() ? "local-fluidaudio" : "local-whisper", variables: { MODEL: "openai/whisper-large-v3-turbo" } });
 
   const [screenshotConfiguration, setScreenshotConfiguration] =
     useState<ScreenshotConfig>({
@@ -210,44 +226,93 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
     setCustomSttProviders(sttList);
 
-    // Load selected AI provider (empty until the user picks one on first run)
-    // Migrate variable keys to uppercase (extractVariables now preserves case)
+    // Load selected AI provider (empty until the user picks one on first run).
+    // Provider id lives in localStorage; secret variables live in the keychain.
     const savedSelectedAi = safeLocalStorage.getItem(
       STORAGE_KEYS.SELECTED_AI_PROVIDER
     );
     if (savedSelectedAi) {
       try {
         const parsed = JSON.parse(savedSelectedAi);
-        if (parsed.variables) {
-          const uppercased: Record<string, string> = {};
-          for (const [k, v] of Object.entries(parsed.variables)) {
-            uppercased[k.toUpperCase()] = v as string;
+        const inlineVars = parsed.variables
+          ? uppercaseKeys(parsed.variables)
+          : undefined;
+        // Set immediately from whatever localStorage holds (old blobs still
+        // carry inline variables), so the provider is usable right away.
+        setSelectedAIProvider({
+          provider: parsed.provider ?? "",
+          variables: inlineVars ?? {},
+        });
+        // Then reconcile secrets with the keychain (async).
+        void (async () => {
+          if (inlineVars && Object.keys(inlineVars).length) {
+            // Migrate legacy plaintext: move secrets to the keychain, then
+            // strip them from localStorage (saveSecret guarantees the value is
+            // stored before we drop the plaintext copy).
+            await saveSecret(AI_PROVIDER_SECRET_KEY, JSON.stringify(inlineVars));
+            safeLocalStorage.setItem(
+              STORAGE_KEYS.SELECTED_AI_PROVIDER,
+              JSON.stringify({ provider: parsed.provider })
+            );
+          } else {
+            const secret = await getSecret(AI_PROVIDER_SECRET_KEY);
+            if (secret) {
+              try {
+                const vars = uppercaseKeys(JSON.parse(secret));
+                setSelectedAIProvider((prev) => ({ ...prev, variables: vars }));
+              } catch {
+                /* corrupt secret blob — leave variables empty */
+              }
+            }
           }
-          parsed.variables = uppercased;
-        }
-        setSelectedAIProvider(parsed);
+        })();
       } catch {
         setSelectedAIProvider({ provider: "", variables: {} });
       }
     }
 
-    // Load selected STT provider (same uppercase migration)
+    // Load selected STT provider (provider id in localStorage, secrets in the
+    // keychain — same scheme as the AI provider above).
     const savedSelectedStt = safeLocalStorage.getItem(
       STORAGE_KEYS.SELECTED_STT_PROVIDER
     );
     if (savedSelectedStt) {
       try {
         const parsed = JSON.parse(savedSelectedStt);
-        if (parsed.variables) {
-          const uppercased: Record<string, string> = {};
-          for (const [k, v] of Object.entries(parsed.variables)) {
-            uppercased[k.toUpperCase()] = v as string;
+        const inlineVars = parsed.variables
+          ? uppercaseKeys(parsed.variables)
+          : undefined;
+        setSelectedSttProvider({
+          provider: parsed.provider ?? "",
+          variables: inlineVars ?? {},
+        });
+        void (async () => {
+          if (inlineVars && Object.keys(inlineVars).length) {
+            await saveSecret(
+              STT_PROVIDER_SECRET_KEY,
+              JSON.stringify(inlineVars)
+            );
+            safeLocalStorage.setItem(
+              STORAGE_KEYS.SELECTED_STT_PROVIDER,
+              JSON.stringify({ provider: parsed.provider })
+            );
+          } else {
+            const secret = await getSecret(STT_PROVIDER_SECRET_KEY);
+            if (secret) {
+              try {
+                const vars = uppercaseKeys(JSON.parse(secret));
+                setSelectedSttProvider((prev) => ({ ...prev, variables: vars }));
+              } catch {
+                /* corrupt secret blob — leave variables empty */
+              }
+            }
           }
-          parsed.variables = uppercased;
-        }
-        setSelectedSttProvider(parsed);
+        })();
       } catch {
-        setSelectedSttProvider({ provider: "local-fluidaudio", variables: {} });
+        setSelectedSttProvider({
+          provider: isMacOS() ? "local-fluidaudio" : "local-whisper",
+          variables: { MODEL: "openai/whisper-large-v3-turbo" },
+        });
       }
     }
 
@@ -492,22 +557,30 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     checkImageSupport();
   }, [selectedAIProvider.provider]);
 
-  // Sync selected AI to localStorage
+  // Persist selected AI: provider id in localStorage, secrets in the keychain.
   useEffect(() => {
     if (selectedAIProvider.provider) {
       safeLocalStorage.setItem(
         STORAGE_KEYS.SELECTED_AI_PROVIDER,
-        JSON.stringify(selectedAIProvider)
+        JSON.stringify({ provider: selectedAIProvider.provider })
+      );
+      void saveSecret(
+        AI_PROVIDER_SECRET_KEY,
+        JSON.stringify(selectedAIProvider.variables || {})
       );
     }
   }, [selectedAIProvider]);
 
-  // Sync selected STT to localStorage
+  // Persist selected STT: provider id in localStorage, secrets in the keychain.
   useEffect(() => {
     if (selectedSttProvider.provider) {
       safeLocalStorage.setItem(
         STORAGE_KEYS.SELECTED_STT_PROVIDER,
-        JSON.stringify(selectedSttProvider)
+        JSON.stringify({ provider: selectedSttProvider.provider })
+      );
+      void saveSecret(
+        STT_PROVIDER_SECRET_KEY,
+        JSON.stringify(selectedSttProvider.variables || {})
       );
     }
   }, [selectedSttProvider]);
@@ -523,6 +596,26 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     ...SPEECH_TO_TEXT_PROVIDERS,
     ...customSttProviders,
   ];
+
+  // Validate selected STT provider exists in the available providers.
+  // Handles migration when providers are removed (e.g., local-parakeet, local-nemotron).
+  useEffect(() => {
+    if (
+      selectedSttProvider.provider &&
+      !allSttProviders.some((p) => p.id === selectedSttProvider.provider)
+    ) {
+      const fallback = isMacOS()
+        ? { provider: "local-fluidaudio" as const, variables: {} as Record<string, string> }
+        : {
+            provider: "local-whisper" as const,
+            variables: { MODEL: "openai/whisper-large-v3-turbo" } as Record<string, string>,
+          };
+      console.warn(
+        `Saved STT provider "${selectedSttProvider.provider}" no longer exists; falling back to "${fallback.provider}"`
+      );
+      setSelectedSttProvider(fallback);
+    }
+  }, [selectedSttProvider.provider, allSttProviders]);
 
   const onSetSelectedAIProvider = ({
     provider,

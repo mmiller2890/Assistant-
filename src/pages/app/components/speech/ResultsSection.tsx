@@ -13,6 +13,8 @@ type Props = {
   setConversationMode: (mode: boolean) => void;
   partialTranscription?: string;
   isStreaming?: boolean;
+  isLabelingSpeakers?: boolean;
+  currentSpeaker?: string | null;
 };
 
 export const ResultsSection = ({
@@ -24,6 +26,8 @@ export const ResultsSection = ({
   setConversationMode,
   partialTranscription = "",
   isStreaming = false,
+  isLabelingSpeakers = false,
+  currentSpeaker = null,
 }: Props) => {
   const hasResponse = lastAIResponse || isAIProcessing;
   const hasHistory = conversation.messages.length > 2;
@@ -67,6 +71,16 @@ export const ResultsSection = ({
           {transcriptionText && (
             <p className="text-[11px]">
               <span className="font-mono text-meta">system</span>{" "}
+              {currentSpeaker && (
+                <span className="font-mono text-[9px] text-muted-foreground mr-1">
+                  {currentSpeaker}
+                </span>
+              )}
+              {isLabelingSpeakers && !currentSpeaker && (
+                <span className="font-mono text-[9px] text-meta italic mr-1">
+                  labeling speakers…
+                </span>
+              )}
               <span
                 className={cn(
                   "text-muted-foreground",
@@ -139,6 +153,16 @@ export const ResultsSection = ({
                 <span className="font-mono text-[9px] text-meta">
                   system
                 </span>
+                {currentSpeaker && (
+                  <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide">
+                    {currentSpeaker}
+                  </span>
+                )}
+                {isLabelingSpeakers && !currentSpeaker && (
+                  <span className="text-[9px] text-muted-foreground italic">
+                    Labeling speakers…
+                  </span>
+                )}
               </div>
               <p className={cn("text-sm", isStreaming && !lastTranscription && "italic opacity-60")}>
                 {transcriptionText}
@@ -167,7 +191,9 @@ export const ResultsSection = ({
                       )}
                     >
                       <span className="font-mono text-[8px] text-meta">
-                        {message.role === "user" ? "system" : "answer"}
+                        {message.role === "user"
+                          ? (message.speaker || "system").toLowerCase()
+                          : "answer"}
                       </span>
                       <div className="text-muted-foreground leading-relaxed mt-0.5">
                         <Markdown>{message.content}</Markdown>

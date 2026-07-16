@@ -1,0 +1,159 @@
+import { useCallback, useRef, useState } from "react";
+import type { MutableRefObject } from "react";
+import curl2Json from "@bany/curl-to-json";
+import { TYPE_PROVIDER } from "@/types";
+import { deepVariableReplacer } from "@/lib/functions/common.function";
+
+interface SelectedSttProvider {
+  provider: string;
+  variables: Record<string, string>;
+}
+
+function buildStreamingUrl(
+  provider: TYPE_PROVIDER,
+  selected: SelectedSttProvider
+): string {
+  if (provider.streamingUrl) {
+    return deepVariableReplacer(provider.streamingUrl, selected.variables);
+  }
+  const curlJson = curl2Json(provider.curl);
+  const baseUrl = (curlJson.url as string) || "";
+  const replaced = deepVariableReplacer(baseUrl, selected.variables);
+  return replaced.replace(/^http/, "ws");
+}
+
+/**
+ * WebSocket session mechanics for streaming STT providers: open/close the
+ * socket, forward raw audio chunks, and surface partial transcripts.
+ *
+ * What to DO with a final transcript is the caller's decision, delivered via
+ * `onFinalTranscriptRef`. Everything the socket handlers read is ref-backed:
+ * they are created once per socket, so plain captured state would go stale
+ * (the bug class this file's parent has been bitten by before).
+ *
+ * The two coordination flags are shared with the batch (speech-detected)
+ * path: `streamingFinalizedRef` marks that the socket already produced the
+ * final text for the current utterance, and
+ * `batchProcessedForCurrentUtteranceRef` marks the reverse.
+ */
+export function useSttStreamSocket({
+  selectedSttProviderRef,
+  allSttProvidersRef,
+  capturedSampleRateRef,
+  onFinalTranscriptRef,
+}: {
+  selectedSttProviderRef: MutableRefObject<SelectedSttProvider>;
+  allSttProvidersRef: MutableRefObject<TYPE_PROVIDER[]>;
+  capturedSampleRateRef: MutableRefObject<number>;
+  onFinalTranscriptRef: MutableRefObject<(text: string) => void>;
+}) {
+  const wsRef = useRef<WebSocket | null>(null);
+  const streamingFinalizedRef = useRef<boolean>(false);
+  const batchProcessedForCurrentUtteranceRef = useRef<boolean>(false);
+  const [partialTranscription, setPartialTranscription] = useState<string>("");
+  const [isStreaming, setIsStreaming] = useState<boolean>(false);
+
+  const openStreamingSocket = useCallback(() => {
+    const currentSelected = selectedSttProviderRef.current;
+    if (currentSelected.provider === "local-fluidaudio") return;
+
+    const currentProviders = allSttProvidersRef.current;
+    const providerConfig = currentProviders.find(
+      (p) => p.id === currentSelected.provider
+    );
+    if (!providerConfig?.streaming) return;
+
+    if (wsRef.current) {
+      if (wsRef.current.readyState === WebSocket.OPEN) return;
+    }
+
+    streamingFinalizedRef.current = false;
+    batchProcessedForCurrentUtteranceRef.current = false;
+
+    try {
+      const wsUrl = buildStreamingUrl(providerConfig, currentSelected);
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = "arraybuffer";
+
+      ws.onopen = () => {
+        ws.send(
+          JSON.stringify({
+            sample_rate: capturedSampleRateRef.current,
+          })
+        );
+        setIsStreaming(true);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.error) {
+            console.error("[STT-Stream] Server error:", data.error);
+            return;
+          }
+          if (data.is_final) {
+            setPartialTranscription("");
+            setIsStreaming(false);
+            streamingFinalizedRef.current = true;
+            onFinalTranscriptRef.current(data.text || "");
+            ws.close();
+          } else if (data.text) {
+            setPartialTranscription(data.text);
+          }
+        } catch (e) {
+          console.error("[STT-Stream] Failed to parse message:", e);
+        }
+      };
+
+      ws.onerror = (e) => {
+        console.error("[STT-Stream] WebSocket error:", e);
+        setIsStreaming(false);
+      };
+
+      ws.onclose = () => {
+        wsRef.current = null;
+        setIsStreaming(false);
+      };
+
+      wsRef.current = ws;
+    } catch (err) {
+      console.error("[STT-Stream] Failed to open WebSocket:", err);
+    }
+  }, [
+    selectedSttProviderRef,
+    allSttProvidersRef,
+    capturedSampleRateRef,
+    onFinalTranscriptRef,
+  ]);
+
+  const closeStreamingSocket = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setIsStreaming(false);
+    setPartialTranscription("");
+  }, []);
+
+  const sendAudioChunk = useCallback((base64Audio: string) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    const binaryString = atob(base64Audio);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    wsRef.current.send(bytes.buffer);
+  }, []);
+
+  return {
+    isStreaming,
+    partialTranscription,
+    openStreamingSocket,
+    closeStreamingSocket,
+    sendAudioChunk,
+    streamingFinalizedRef,
+    batchProcessedForCurrentUtteranceRef,
+  };
+}

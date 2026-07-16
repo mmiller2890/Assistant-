@@ -1,17 +1,17 @@
 # AGENTS.md
 
 ## Project Overview
-Assistant is a local-only fork of an open-source Pluely project — a Tauri 2 + React desktop app that provides a stealth AI assistant overlay for meetings, interviews, and conversations. This fork removes all cloud features (hosted API, license activation, auto-updater, telemetry) and defaults to local providers (Ollama for AI, local Whisper/Parakeet for STT).
+Assistant is a local-only fork of an open-source Pluely project — a Tauri 2 + React desktop app that provides a stealth AI assistant overlay for meetings, interviews, and conversations. This fork removes all cloud features (hosted API, license activation, auto-updater, telemetry) and defaults to local providers (Ollama for AI, fluidaudio-rs for STT on macOS, faster-whisper on Windows/Linux).
 
 ## Tech Stack
 - **Frontend:** React 19, TypeScript 5.8, Tailwind CSS 4, Vite 7
 - **Desktop:** Tauri 2 (Rust backend)
 - **Local AI:** Ollama (`localhost:11434`)
-- **Local STT:** fluidaudio-rs in-process ASR on macOS Apple Silicon (default), with optional advanced servers: faster-whisper (`localhost:8000`) or mlx-audio ASR (`localhost:8001`, includes Parakeet TDT v3 and Nemotron)
-- **Language:** TypeScript (frontend), Rust (backend), Python (advanced local STT servers)
+- **Local STT:** fluidaudio-rs in-process CoreML ASR on macOS Apple Silicon (default), faster-whisper with Whisper Large v3 Turbo on Windows/Linux (via `whisper_server.py` on `localhost:8000`)
+- **Language:** TypeScript (frontend), Rust (backend), Python (whisper server only)
 
 ### Known local STT limitation
-- `local-fluidaudio` (fluidaudio-rs) uses a batch transcription path. VAD captures the utterance as a WAV, then `fetchSTT()` calls the Rust `stt_transcribe_speech` command to get the final text. It does **not** expose live partial transcriptions. For live partials, use a streaming provider such as `local-parakeet` (requires the mlx-audio server) or a custom WebSocket streaming STT provider.
+- `local-fluidaudio` (fluidaudio-rs) uses a batch transcription path. VAD captures the utterance as a WAV, then `fetchSTT()` calls the Rust `stt_transcribe_speech` command to get the final text. It does **not** expose live partial transcriptions.
 
 ## Commands
 
@@ -80,12 +80,10 @@ src-tauri/
 - See `src/lib/functions/stt.function.ts` and `ai-response.function.ts` line: `url?.startsWith("https") ? fetch : tauriFetch`.
 
 ### Local STT
-- **Default:** `local-fluidaudio` uses fluidaudio-rs in-process ASR on macOS 14+ Apple Silicon. No Python server required. The pipeline is: VAD detects speech → Rust emits `speech-detected` with a base64 WAV → frontend `fetchSTT()` invokes `stt_transcribe_speech` → Rust returns final text.
-- **Advanced local STT servers:**
-  - `whisper_server.py` — faster-whisper server on port 8000 (venv: `.whisper-venv`)
-  - `mlx_asr_server.py` — mlx-audio ASR server on port 8001 (venv: `.mlx-asr-venv`); defaults to Parakeet TDT v3, supports Nemotron via `--model`
-- Both advanced servers expose `POST /v1/audio/transcriptions` (OpenAI-compatible).
-- Tauri capabilities in `src-tauri/capabilities/` whitelist `localhost:8000` and `8001` for advanced servers.
+- **macOS (default):** `local-fluidaudio` uses fluidaudio-rs in-process CoreML ASR on macOS 14+ Apple Silicon. No Python server required. The pipeline is: VAD detects speech → Rust emits `speech-detected` with a base64 WAV → frontend `fetchSTT()` invokes `stt_transcribe_speech` → Rust returns final text.
+- **Windows/Linux (default):** `local-whisper` uses faster-whisper with Whisper Large v3 Turbo via `whisper_server.py` on `localhost:8000`. Requires Python venv setup (`.whisper-venv`).
+- `whisper_server.py` exposes `POST /v1/audio/transcriptions` (OpenAI-compatible).
+- Tauri capabilities in `src-tauri/capabilities/` whitelist `localhost:8000` for the whisper server.
 
 ## Conventions
 - No comments in code unless explicitly requested.

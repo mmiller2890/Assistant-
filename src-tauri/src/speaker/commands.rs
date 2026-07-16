@@ -14,6 +14,81 @@ use tauri::{AppHandle, Emitter, Listener, Manager};
 use tauri_plugin_shell::ShellExt;
 use tracing::{error, warn};
 
+#[cfg(target_os = "macos")]
+/// Silero VAD contract: 4096-sample chunks of 16 kHz mono audio (256 ms).
+const SILERO_CHUNK_SAMPLES: usize = 4096;
+const SILERO_SAMPLE_RATE: usize = 16_000;
+
+/// Linear resampler for the VAD path. The capture tap runs at the device rate
+/// (typically 48 kHz); Silero expects 16 kHz. Feeding device-rate audio in
+/// directly pitch-shifts it 3x and makes the speech probabilities garbage.
+fn resample_linear(input: &[f32], from_rate: usize, to_rate: usize) -> Vec<f32> {
+    if from_rate == to_rate || input.is_empty() {
+        return input.to_vec();
+    }
+    let out_len = (input.len() * to_rate / from_rate).max(1);
+    let step = (input.len() - 1) as f32 / (out_len - 1).max(1) as f32;
+    (0..out_len)
+        .map(|i| {
+            let pos = i as f32 * step;
+            let idx = pos as usize;
+            let frac = pos - idx as f32;
+            let a = input[idx];
+            let b = input[(idx + 1).min(input.len() - 1)];
+            a + (b - a) * frac
+        })
+        .collect()
+}
+
+/// Hysteresis thresholds mirroring the microphone path (@ricky0123/vad-react
+/// defaults): enter speech when probability rises above 0.5, only leave once
+/// it drops below 0.35. A single hard cutoff drops soft mid-sentence syllables
+/// and chops utterances at natural pauses.
+const SILERO_POSITIVE_THRESHOLD: f32 = 0.5;
+const SILERO_NEGATIVE_THRESHOLD: f32 = 0.35;
+
+/// Peak below which a chunk is treated as "no signal at all" for the no-audio
+/// warning. A silent tap (denied permission / wrong output device) delivers
+/// exactly 0.0; any real audio, however quiet, exceeds this.
+const SILENCE_FLOOR: f32 = 0.0005;
+
+/// Hysteresis decision on a raw Silero probability: enter speech only once the
+/// probability rises above the positive threshold, and stay in speech until it
+/// drops below the (lower) negative threshold. The gap between the two
+/// thresholds is what keeps soft mid-utterance dips from prematurely ending an
+/// utterance — a single hard cutoff chops speech at every natural pause.
+fn silero_is_speech(in_speech: bool, prob: f32) -> bool {
+    if in_speech {
+        prob >= SILERO_NEGATIVE_THRESHOLD
+    } else {
+        prob >= SILERO_POSITIVE_THRESHOLD
+    }
+}
+
+/// Raw Silero speech probability for a 16 kHz chunk (max across frames), or
+/// None when Silero is unavailable and the threshold fallback should be used.
+fn get_silero_vad_probability(
+    app: &AppHandle,
+    samples: &[f32],
+) -> Option<f32> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(stt_state) = app.try_state::<crate::stt::SttState>() {
+            if let Ok(frames) = stt_state.vad_process_samples(samples) {
+                return Some(
+                    frames
+                        .iter()
+                        .map(|f| f.probability)
+                        .fold(0.0f32, f32::max),
+                );
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, samples);
+    None
+}
+
 // VAD Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VadConfig {
@@ -41,12 +116,12 @@ impl Default for VadConfig {
         Self {
             enabled: true,
             hop_size: 1024,
-            sensitivity_rms: 0.012, // Much less sensitive - only real speech
-            peak_threshold: 0.035,  // Higher threshold - filters clicks/noise
-            silence_chunks: 45,     // ~1.0s of silence before stopping
-            min_speech_chunks: 7,   // ~0.16s - captures short answers
+            sensitivity_rms: 0.006, // Tuned for system audio which is quieter than mic speech
+            peak_threshold: 0.020,  // Lower threshold to catch quiet video/call audio
+            silence_chunks: 60,     // ~1.3s of silence before stopping (fewer false cuts)
+            min_speech_chunks: 12,  // ~0.26s - matches the mic path's minSpeechFrames
             pre_speech_chunks: 12,  // ~0.27s - enough to catch word start
-            noise_gate_threshold: 0.003, // Stronger noise filtering
+            noise_gate_threshold: 0.0015, // Gentler gate for compressed system audio
             max_recording_duration_secs: 180, // 3 minutes default
             emit_chunks: false,
             chunk_interval_ms: 1000,
@@ -87,6 +162,18 @@ pub async fn start_system_audio_capture(
         *vad_cfg = config;
     }
 
+    // Only monitor for default-output-device switches when we're actually
+    // tapping the default device (not a user-pinned one). Captured before the
+    // tap is built, so it reflects the device the tap binds to.
+    let on_default_device = device_id
+        .as_deref()
+        .map_or(true, |d| d.is_empty() || d == "default");
+    let monitor_output_uid = if on_default_device {
+        crate::speaker::default_output_uid()
+    } else {
+        None
+    };
+
     let input = SpeakerInput::new_with_device(device_id).map_err(|e| {
         error!("Failed to create speaker input: {}", e);
         format!("Failed to access system audio: {}", e)
@@ -119,11 +206,12 @@ pub async fn start_system_audio_capture(
 
     let state_clone = app.state::<crate::AudioState>();
     let task = tokio::spawn(async move {
-        if vad_config.enabled {
-            run_vad_capture(app_clone.clone(), stream, sr, vad_config).await;
+        let session_path = if vad_config.enabled {
+            run_vad_capture(app_clone.clone(), stream, sr, vad_config, monitor_output_uid).await
         } else {
             run_continuous_capture(app_clone.clone(), stream, sr, vad_config).await;
-        }
+            None
+        };
 
         let state = app_clone.state::<crate::AudioState>();
         {
@@ -131,6 +219,8 @@ pub async fn start_system_audio_capture(
                 *guard = None;
             };
         }
+
+        session_path
     });
 
     *state_clone
@@ -147,8 +237,19 @@ async fn run_vad_capture(
     stream: impl StreamExt<Item = f32> + Unpin,
     sr: u32,
     config: VadConfig,
-) {
+    // When Some, the UID of the default output device this capture bound to.
+    // If it changes mid-session, we emit `audio-device-changed` and stop so
+    // the frontend can restart on the new device instead of silently tapping
+    // the old one.
+    monitor_output_uid: Option<String>,
+) -> Option<std::path::PathBuf> {
     let mut stream = stream;
+    let mut last_device_check = Instant::now();
+    // Input-level metering + no-audio detection (see the emit sites below).
+    let mut last_level_emit = Instant::now();
+    let mut level_window_peak: f32 = 0.0;
+    let mut ever_had_signal = false;
+    let mut silent_warned = false;
     let mut buffer: VecDeque<f32> = VecDeque::new();
     let mut pre_speech: VecDeque<f32> =
         VecDeque::with_capacity(config.pre_speech_chunks * config.hop_size);
@@ -163,7 +264,43 @@ async fn run_vad_capture(
     let mut last_emitted_len: usize = 0;
     let mut last_chunk_time: Option<Instant> = None;
 
+    let session_start = Instant::now();
+    let max_session_samples =
+        (sr as usize * config.max_recording_duration_secs as usize).min(sr as usize * 3600);
+    let mut session_audio: Vec<f32> = Vec::new();
+    let mut vad_accumulator: Vec<f32> = Vec::new();
+    // macOS assumes silence until the first Silero result; elsewhere Silero
+    // never runs, so start at None to engage the threshold fallback.
+    let mut pending_silero_prob: Option<f32> = if cfg!(target_os = "macos") {
+        Some(0.0)
+    } else {
+        None
+    };
+    let mut vad_hops_until_refresh: usize = 0;
+    let mut utterance_start_time: f32 = 0.0;
+
     while let Some(sample) = stream.next().await {
+        // Detect a mid-session default-output-device switch (checked ~1x/sec so
+        // the CoreAudio query stays off the hot path). On a switch the tap is
+        // still bound to the old device and would capture silence, so stop and
+        // let the frontend restart on the new device.
+        if let Some(ref bound_uid) = monitor_output_uid {
+            if last_device_check.elapsed() >= Duration::from_secs(1) {
+                last_device_check = Instant::now();
+                if let Some(current_uid) = crate::speaker::default_output_uid() {
+                    if &current_uid != bound_uid {
+                        warn!(
+                            "Default output device changed mid-capture ({} -> {}); \
+                             restarting on the new device",
+                            bound_uid, current_uid
+                        );
+                        let _ = app.emit("audio-device-changed", ());
+                        break;
+                    }
+                }
+            }
+        }
+
         buffer.push_back(sample);
 
         // Process in fixed chunks for VAD analysis
@@ -175,11 +312,70 @@ async fn run_vad_capture(
                 }
             }
 
-            // Apply noise gate BEFORE VAD (critical for accuracy)
-            let mono = apply_noise_gate(&mono, config.noise_gate_threshold);
+            // Keep the raw samples for VAD: the mic path (vad-react) feeds
+            // Silero ungated audio, and gating first zeroes quiet speech
+            // onsets. The gate still applies to the recorded/streamed audio.
+            let raw_mono = mono;
 
-            let (rms, peak) = calculate_audio_metrics(&mono);
-            let is_speech = rms > config.sensitivity_rms || peak > config.peak_threshold;
+            // Track the raw input level (pre-gate) for the UI meter and the
+            // no-audio warning. A flat meter / warning surfaces the silent-tap
+            // failure (denied permission, wrong device) that otherwise looks
+            // exactly like "listening but nothing happens".
+            let chunk_peak = raw_mono.iter().fold(0.0f32, |m, &s| m.max(s.abs()));
+            level_window_peak = level_window_peak.max(chunk_peak);
+            if chunk_peak > SILENCE_FLOOR {
+                ever_had_signal = true;
+            }
+            if last_level_emit.elapsed() >= Duration::from_millis(150) {
+                last_level_emit = Instant::now();
+                let _ = app.emit("audio-level", level_window_peak);
+                level_window_peak = 0.0;
+            }
+            if !ever_had_signal
+                && !silent_warned
+                && session_start.elapsed() >= Duration::from_secs(8)
+            {
+                warn!("No system audio detected 8s into capture — likely a permission or output-device issue");
+                let _ = app.emit("audio-silent", ());
+                silent_warned = true;
+            }
+
+            let mono = apply_noise_gate(&raw_mono, config.noise_gate_threshold);
+
+            if session_audio.len() + mono.len() <= max_session_samples {
+                session_audio.extend_from_slice(&mono);
+            }
+
+            // Silero VAD processes 256 ms chunks of 16 kHz audio. The tap runs
+            // at the device rate, so accumulate 256 ms of device-rate samples
+            // and resample down to Silero's expected 4096 @ 16 kHz.
+            #[cfg(target_os = "macos")]
+            {
+                let silero_device_chunk =
+                    (sr as usize * SILERO_CHUNK_SAMPLES) / SILERO_SAMPLE_RATE;
+                vad_accumulator.extend_from_slice(&raw_mono);
+                if vad_accumulator.len() >= silero_device_chunk {
+                    let chunk: Vec<f32> =
+                        vad_accumulator.drain(..silero_device_chunk).collect();
+                    let chunk_16k =
+                        resample_linear(&chunk, sr as usize, SILERO_SAMPLE_RATE);
+                    pending_silero_prob = get_silero_vad_probability(&app, &chunk_16k);
+                    vad_hops_until_refresh = silero_device_chunk / config.hop_size;
+                }
+                if vad_hops_until_refresh > 0 {
+                    vad_hops_until_refresh -= 1;
+                }
+            }
+
+            let is_speech = match pending_silero_prob {
+                // Mic-style hysteresis on the raw probability.
+                Some(prob) => silero_is_speech(in_speech, prob),
+                None => {
+                    // Fallback to threshold VAD
+                    let (rms, peak) = calculate_audio_metrics(&mono);
+                    rms > config.sensitivity_rms || peak > config.peak_threshold
+                }
+            };
 
             if is_speech {
                 if !in_speech {
@@ -189,6 +385,8 @@ async fn run_vad_capture(
 
                     // Include pre-speech buffer for natural sound
                     speech_buffer.extend(pre_speech.drain(..));
+
+                    utterance_start_time = session_start.elapsed().as_secs_f32();
 
                     let _ = app.emit("speech-start", ());
                     last_emitted_len = 0;
@@ -220,11 +418,16 @@ async fn run_vad_capture(
 
                 // Safety cap: force emit if exceeds 30s
                 if speech_buffer.len() > max_samples {
+                    let utterance_end_time = session_start.elapsed().as_secs_f32();
                     let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
                     if normalized_buffer.is_empty() {
                         let _ = app.emit("audio-encoding-error", "Captured audio was empty after normalization");
                     } else if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
-                        let _ = app.emit("speech-detected", b64);
+                        let _ = app.emit("speech-detected", serde_json::json!({
+                            "audio": b64,
+                            "start_time": utterance_start_time,
+                            "end_time": utterance_end_time,
+                        }));
                     } else {
                         error!("Failed to encode speech to WAV");
                         let _ = app.emit("audio-encoding-error", "Failed to encode speech");
@@ -256,11 +459,16 @@ async fn run_vad_capture(
                                 speech_buffer.truncate(speech_buffer.len() - trim_amount);
                             }
 
+                            let utterance_end_time = session_start.elapsed().as_secs_f32();
                             let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
                             if normalized_buffer.is_empty() {
                                 let _ = app.emit("audio-encoding-error", "Captured audio was empty after normalization");
                             } else if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
-                                let _ = app.emit("speech-detected", b64);
+                                let _ = app.emit("speech-detected", serde_json::json!({
+                                    "audio": b64,
+                                    "start_time": utterance_start_time,
+                                    "end_time": utterance_end_time,
+                                }));
                             } else {
                                 error!("Failed to encode speech to WAV");
                                 let _ = app.emit("audio-encoding-error", "Failed to encode speech");
@@ -298,18 +506,40 @@ async fn run_vad_capture(
         }
     }
 
+    // Write session WAV for diarization
+    let mut session_path: Option<std::path::PathBuf> = None;
+    if !session_audio.is_empty() {
+        let temp_dir = std::env::temp_dir();
+        let temp_path = temp_dir.join(format!("assistant-session-{}.wav", uuid::Uuid::new_v4()));
+        if let Err(e) = write_f32_samples_to_wav(sr, &session_audio, &temp_path) {
+            error!("Failed to write session WAV: {}", e);
+        } else {
+            if let Some(stt_state) = app.try_state::<crate::stt::SttState>() {
+                let _ = stt_state.set_session_wav_path(temp_path.clone());
+            }
+            session_path = Some(temp_path);
+        }
+    }
+
     // Emit any remaining audio when the stream ends.
     if in_speech && !speech_buffer.is_empty() {
+        let utterance_end_time = session_start.elapsed().as_secs_f32();
         let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
         if normalized_buffer.is_empty() {
             let _ = app.emit("audio-encoding-error", "Captured audio was empty after normalization");
         } else if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
-            let _ = app.emit("speech-detected", b64);
+            let _ = app.emit("speech-detected", serde_json::json!({
+                "audio": b64,
+                "start_time": utterance_start_time,
+                "end_time": utterance_end_time,
+            }));
         } else {
             error!("Failed to encode trailing speech to WAV");
             let _ = app.emit("audio-encoding-error", "Failed to encode speech");
         }
     }
+
+    session_path
 }
 
 // Continuous capture (VAD disabled)
@@ -318,7 +548,7 @@ async fn run_continuous_capture(
     stream: impl StreamExt<Item = f32> + Unpin,
     sr: u32,
     config: VadConfig,
-) {
+) -> Option<std::path::PathBuf> {
     let mut stream = stream;
     let max_samples = (sr as u64 * config.max_recording_duration_secs) as usize;
 
@@ -420,7 +650,11 @@ async fn run_continuous_capture(
 
         match samples_to_wav_b64(sr, &cleaned_audio) {
             Ok(b64) => {
-                let _ = app.emit("speech-detected", b64);
+                let _ = app.emit("speech-detected", serde_json::json!({
+                    "audio": b64,
+                    "start_time": 0.0,
+                    "end_time": 0.0,
+                }));
             }
             Err(e) => {
                 error!("Failed to encode continuous audio: {}", e);
@@ -433,6 +667,8 @@ async fn run_continuous_capture(
     }
 
     let _ = app.emit("continuous-recording-stopped", ());
+
+    None
 }
 
 // Apply noise gate
@@ -538,6 +774,28 @@ fn samples_to_wav_b64(sample_rate: u32, mono_f32: &[f32]) -> Result<String, Stri
     Ok(B64.encode(cursor.into_inner()))
 }
 
+fn write_f32_samples_to_wav(
+    sample_rate: u32,
+    samples: &[f32],
+    path: &std::path::Path,
+) -> Result<(), String> {
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer = WavWriter::create(path, spec).map_err(|e| e.to_string())?;
+    for &s in samples {
+        let clamped = s.clamp(-1.0, 1.0);
+        writer
+            .write_sample((clamped * i16::MAX as f32) as i16)
+            .map_err(|e| e.to_string())?;
+    }
+    writer.finalize().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // Convert samples to raw little-endian f32 bytes, base64-encoded (no WAV header).
 // Used for streaming chunks sent to the WebSocket endpoint.
 fn samples_to_raw_f32_b64(mono_f32: &[f32]) -> Result<String, String> {
@@ -553,23 +811,34 @@ fn samples_to_raw_f32_b64(mono_f32: &[f32]) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn stop_system_audio_capture(app: AppHandle) -> Result<(), String> {
+pub async fn stop_system_audio_capture(
+    app: AppHandle,
+) -> Result<Option<std::path::PathBuf>, String> {
     let state = app.state::<crate::AudioState>();
 
-    // Abort task in separate scope (Send trait fix)
-    {
+    // Take the task and await it so the capture function can finish writing
+    // its session WAV before we return to the frontend.
+    let task = {
         let mut guard = state
             .stream_task
             .lock()
             .map_err(|e| format!("Failed to acquire task lock: {}", e))?;
+        guard.take()
+    };
 
-        if let Some(task) = guard.take() {
-            task.abort();
+    let session_path = if let Some(task) = task {
+        task.abort();
+        match tokio::time::timeout(tokio::time::Duration::from_secs(5), task).await {
+            Ok(Ok(path)) => path,
+            Ok(Err(_)) => None,
+            Err(_) => {
+                error!("Capture task did not finish within 5 seconds after abort");
+                None
+            }
         }
-    }
-
-    // LONGER delay for proper cleanup (300ms instead of 150ms)
-    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+    } else {
+        None
+    };
 
     // Mark as not capturing
     *state
@@ -577,12 +846,9 @@ pub async fn stop_system_audio_capture(app: AppHandle) -> Result<(), String> {
         .lock()
         .map_err(|e| format!("Failed to update capturing state: {}", e))? = false;
 
-    // Additional cleanup delay (CRITICAL for mic indicator)
-    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-
     // Emit stopped event
     let _ = app.emit("capture-stopped", ());
-    Ok(())
+    Ok(session_path)
 }
 
 /// Manual stop for continuous recording
@@ -723,4 +989,66 @@ pub fn get_output_devices() -> Result<Vec<AudioDevice>, String> {
         error!("Failed to get output devices: {}", e);
         format!("Failed to get output devices: {}", e)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resample_is_identity_when_rates_match() {
+        let input = vec![0.1, 0.2, 0.3, 0.4];
+        assert_eq!(resample_linear(&input, 16_000, 16_000), input);
+    }
+
+    #[test]
+    fn resample_handles_empty_input() {
+        assert!(resample_linear(&[], 48_000, 16_000).is_empty());
+    }
+
+    #[test]
+    fn resample_downsamples_length_by_the_rate_ratio() {
+        // 48 kHz -> 16 kHz is a 3:1 decimation. 4096 in -> ~1365 out.
+        let input = vec![0.0f32; 4096];
+        let out = resample_linear(&input, 48_000, 16_000);
+        assert_eq!(out.len(), 4096 * 16_000 / 48_000);
+    }
+
+    #[test]
+    fn resample_upsamples_length_by_the_rate_ratio() {
+        // 8 kHz -> 16 kHz doubles the frame count (the sub-16k truncation case).
+        let input = vec![0.0f32; 1000];
+        let out = resample_linear(&input, 8_000, 16_000);
+        assert_eq!(out.len(), 2000);
+    }
+
+    #[test]
+    fn resample_preserves_endpoints_and_stays_in_range() {
+        // A ramp from 0..1 should still start at 0 and end at ~1 after resampling.
+        let input: Vec<f32> = (0..48).map(|i| i as f32 / 47.0).collect();
+        let out = resample_linear(&input, 48_000, 16_000);
+        assert!((out[0] - 0.0).abs() < 1e-6);
+        assert!((out[out.len() - 1] - 1.0).abs() < 1e-6);
+        for &v in &out {
+            assert!((0.0..=1.0).contains(&v));
+        }
+    }
+
+    #[test]
+    fn hysteresis_requires_positive_threshold_to_enter_speech() {
+        // Not currently in speech: must exceed the positive threshold.
+        assert!(!silero_is_speech(false, 0.34));
+        assert!(!silero_is_speech(false, 0.49)); // above negative but below positive
+        assert!(silero_is_speech(false, 0.50));
+        assert!(silero_is_speech(false, 0.90));
+    }
+
+    #[test]
+    fn hysteresis_holds_speech_until_below_negative_threshold() {
+        // Already in speech: only a drop below the negative threshold ends it.
+        assert!(silero_is_speech(true, 0.40)); // between thresholds -> keep going
+        assert!(silero_is_speech(true, 0.35));
+        assert!(!silero_is_speech(true, 0.34));
+        assert!(!silero_is_speech(true, 0.10));
+    }
 }
