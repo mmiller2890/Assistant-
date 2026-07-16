@@ -14,7 +14,13 @@ export const StatusLine = () => {
   };
 
   return (
-    <div className="flex items-center justify-between border-b border-border bg-sidebar px-4 py-2.5">
+    // The layout's invisible drag strip (z-50) covers this band; sit above it
+    // and act as the drag region ourselves. Tauri only starts a drag when the
+    // attributed element is the click target, so the buttons stay clickable.
+    <div
+      data-tauri-drag-region
+      className="relative z-[60] flex items-center justify-between border-b border-border bg-sidebar px-4 py-2.5"
+    >
       <div className="flex items-center gap-2">
         <div className="flex size-5 items-center justify-center rounded border border-primary">
           <span className="size-1.5 rounded-sm bg-primary" />
