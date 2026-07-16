@@ -254,6 +254,40 @@ fn handle_toggle_window<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
+/// Show and focus the overlay (main) window. Used by the dashboard pop-out
+/// control; mirrors the show branch of `handle_toggle_window` so the two do
+/// not diverge, without touching that platform-forked function.
+#[tauri::command]
+pub fn show_overlay(app: AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+
+    {
+        let state = app.state::<WindowVisibility>();
+        let mut is_hidden = state.is_hidden.lock().unwrap();
+        *is_hidden = false;
+    }
+
+    if let Err(e) = window.show() {
+        eprintln!("Failed to show overlay: {}", e);
+    }
+    if let Err(e) = window.set_focus() {
+        eprintln!("Failed to focus overlay: {}", e);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(panel) = app.get_webview_panel("main") {
+            panel.show();
+        }
+    }
+
+    if let Err(e) = window.emit("toggle-window-visibility", false) {
+        eprintln!("Failed to emit toggle-window-visibility: {}", e);
+    }
+}
+
 /// Handle audio shortcut
 fn handle_audio_shortcut<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {

@@ -72,6 +72,7 @@ pub fn run() {
             shortcuts::set_app_icon_visibility,
             shortcuts::set_always_on_top,
             shortcuts::exit_app,
+            shortcuts::show_overlay,
             speaker::start_system_audio_capture,
             speaker::stop_system_audio_capture,
             speaker::manual_stop_continuous,
@@ -97,6 +98,22 @@ pub fn run() {
                 if let Err(e) = window::create_dashboard_window(&app_handle) {
                     eprintln!("Failed to pre-create dashboard window on startup: {}", e);
                 }
+            }
+
+            // Dashboard-primary launch: the dashboard is the focused primary
+            // window; the overlay starts hidden and is summoned on demand
+            // (⌘\ or the dashboard pop-out button). Runs after setup_main_window
+            // + init() so the overlay is fully realized and its capture engine
+            // has mounted before we hide it.
+            if let Some(dashboard) = app_handle.get_webview_window("dashboard") {
+                let _ = dashboard.show();
+                let _ = dashboard.set_focus();
+            }
+            if let Some(main) = app_handle.get_webview_window("main") {
+                let _ = main.hide();
+                let state = app_handle.state::<shortcuts::WindowVisibility>();
+                let mut is_hidden = state.is_hidden.lock().unwrap();
+                *is_hidden = true;
             }
 
             #[cfg(desktop)]
@@ -176,9 +193,23 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_macos_permissions::init());
     }
 
-    builder
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    let app = builder
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        // macOS dock click with the dashboard hidden: bring it back focused.
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = event {
+            if let Err(e) = window::show_dashboard_window(app_handle) {
+                eprintln!("Failed to reopen dashboard on dock activation: {}", e);
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (app_handle, &event);
+        }
+    });
 }
 
 #[cfg(target_os = "macos")]
