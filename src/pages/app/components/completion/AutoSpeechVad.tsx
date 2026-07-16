@@ -2,7 +2,7 @@ import { fetchSTT } from "@/lib";
 import { UseCompletionReturn } from "@/types";
 import { useMicVAD } from "@ricky0123/vad-react";
 import { LoaderCircleIcon, MicIcon, MicOffIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components";
 import { useApp } from "@/contexts";
 import { floatArrayToWav } from "@/lib/utils";
@@ -89,12 +89,42 @@ const AutoSpeechVADInternal = ({
     },
   });
 
+  // vad-react swallows init failures (mic permission denied, model/wasm CDN
+  // fetch failed) into `errored`, and model download time into `loading` —
+  // both previously rendered as a dead-looking mic button. Surface them.
+  const vadError =
+    vad.errored === false || vad.errored == null
+      ? null
+      : typeof vad.errored === "object" && "message" in (vad.errored as object)
+        ? String((vad.errored as { message: unknown }).message)
+        : String(vad.errored);
+
+  useEffect(() => {
+    if (vadError) {
+      console.error("Voice input (VAD) failed to initialize:", vadError);
+    }
+  }, [vadError]);
+
   return (
     <>
       <Button
         size="icon"
+        title={
+          vadError
+            ? `Voice input failed: ${vadError}. Click to reset — check mic permission and internet (the voice model loads from a CDN).`
+            : vad.loading
+              ? "Loading voice detection model…"
+              : vad.listening
+                ? "Stop voice input"
+                : "Start voice input"
+        }
         onClick={() => {
-          if (vad.listening) {
+          if (vadError) {
+            // Unmount + remount (via enableVAD) so the VAD re-initializes.
+            setEnableVAD(false);
+          } else if (vad.loading) {
+            // Init in flight; ignore clicks rather than double-starting.
+          } else if (vad.listening) {
             vad.pause();
             setEnableVAD(false);
           } else {
@@ -104,12 +134,16 @@ const AutoSpeechVADInternal = ({
         }}
         className="cursor-pointer"
       >
-        {isTranscribing ? (
+        {vadError ? (
+          <MicIcon className="h-4 w-4 text-destructive" />
+        ) : vad.loading ? (
+          <LoaderCircleIcon className="h-4 w-4 animate-spin text-muted-foreground" />
+        ) : isTranscribing ? (
           <LoaderCircleIcon className="h-4 w-4 animate-spin text-primary" />
         ) : vad.userSpeaking ? (
           <LoaderCircleIcon className="h-4 w-4 animate-spin" />
         ) : vad.listening ? (
-          <MicOffIcon className="h-4 w-4 animate-pulse" />
+          <MicOffIcon className="h-4 w-4 animate-pulse text-primary" />
         ) : (
           <MicIcon className="h-4 w-4" />
         )}
