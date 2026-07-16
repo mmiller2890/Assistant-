@@ -174,7 +174,7 @@ pub fn create_dashboard_window<R: Runtime>(
         .inner_size(800.0, 600.0)
         .min_inner_size(800.0, 600.0)
         .content_protected(true)
-        .visible(false);
+        .visible(true);
 
     #[cfg(debug_assertions)]
     let base_builder = base_builder.devtools(true);
