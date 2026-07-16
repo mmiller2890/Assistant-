@@ -229,6 +229,12 @@ fn handle_toggle_window<R: Runtime>(app: &AppHandle<R>) {
             if let Err(e) = window.hide() {
                 eprintln!("Failed to hide window: {}", e);
             }
+            // Payload semantics match the Windows branch: `true` = now hidden.
+            // The overlay ignores this off-Windows; the dashboard's pop-out
+            // button listens to keep its label in sync.
+            if let Err(e) = window.emit("toggle-window-visibility", true) {
+                eprintln!("Failed to emit toggle-window-visibility: {}", e);
+            }
         }
         Ok(false) => {
             // Window is hidden, show it and handle app icon based on user settings
@@ -245,6 +251,9 @@ fn handle_toggle_window<R: Runtime>(app: &AppHandle<R>) {
                 let panel = app.get_webview_panel("main").unwrap();
                 panel.show();
             }
+            if let Err(e) = window.emit("toggle-window-visibility", false) {
+                eprintln!("Failed to emit toggle-window-visibility: {}", e);
+            }
             // Emit event to focus text input
             window.emit("focus-text-input", json!({})).unwrap();
         }
@@ -254,38 +263,35 @@ fn handle_toggle_window<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// Show and focus the overlay (main) window. Used by the dashboard pop-out
-/// control; mirrors the show branch of `handle_toggle_window` so the two do
-/// not diverge, without touching that platform-forked function.
-#[tauri::command]
-pub fn show_overlay(app: AppHandle) {
-    let Some(window) = app.get_webview_window("main") else {
-        return;
-    };
-
+/// The overlay's effective visibility. On Windows the toggle "hides" via a
+/// CSS workaround (the OS window stays visible), so the `is_hidden` flag is
+/// authoritative there; elsewhere the real window visibility is.
+fn overlay_effectively_visible(app: &AppHandle) -> bool {
+    #[cfg(target_os = "windows")]
     {
         let state = app.state::<WindowVisibility>();
-        let mut is_hidden = state.is_hidden.lock().unwrap();
-        *is_hidden = false;
+        let is_hidden = state.is_hidden.lock().unwrap();
+        return !*is_hidden;
     }
+    #[cfg(not(target_os = "windows"))]
+    app.get_webview_window("main")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false)
+}
 
-    if let Err(e) = window.show() {
-        eprintln!("Failed to show overlay: {}", e);
-    }
-    if let Err(e) = window.set_focus() {
-        eprintln!("Failed to focus overlay: {}", e);
-    }
+/// Toggle the overlay (main) window from the dashboard pop-out button.
+/// Delegates to `handle_toggle_window` (the same path as the ⌘\ shortcut,
+/// including NSPanel handling), then reports the overlay's new visibility.
+#[tauri::command]
+pub fn toggle_overlay(app: AppHandle) -> bool {
+    handle_toggle_window(&app);
+    overlay_effectively_visible(&app)
+}
 
-    #[cfg(target_os = "macos")]
-    {
-        if let Ok(panel) = app.get_webview_panel("main") {
-            panel.show();
-        }
-    }
-
-    if let Err(e) = window.emit("toggle-window-visibility", false) {
-        eprintln!("Failed to emit toggle-window-visibility: {}", e);
-    }
+/// Query the overlay's current visibility (dashboard button initial state).
+#[tauri::command]
+pub fn is_overlay_visible(app: AppHandle) -> bool {
+    overlay_effectively_visible(&app)
 }
 
 /// Handle audio shortcut
@@ -321,18 +327,9 @@ fn handle_screenshot_shortcut<R: Runtime>(app: &AppHandle<R>) {
 /// Handle system audio shortcut
 fn handle_system_audio_shortcut<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
-        // Ensure window is visible
-        if let Ok(false) = window.is_visible() {
-            if let Err(e) = window.show() {
-                eprintln!("Failed to show window: {}", e);
-                return;
-            }
-            if let Err(e) = window.set_focus() {
-                eprintln!("Failed to focus window: {}", e);
-            }
-        }
-
-        // Emit event to toggle system audio capture - frontend will determine current state
+        // Capture toggles headless: the overlay only surfaces via the
+        // dashboard pop-out button or ⌘\ (dashboard-primary posture). The
+        // engine runs in the hidden overlay webview either way.
         if let Err(e) = window.emit("toggle-system-audio", json!({})) {
             eprintln!("Failed to emit system audio event: {}", e);
         }
