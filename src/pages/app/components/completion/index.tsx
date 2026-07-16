@@ -9,10 +9,14 @@ export const Completion = ({ isHidden }: { isHidden: boolean }) => {
 
   return (
     <>
-      <Audio {...completion} />
       <Input {...completion} isHidden={isHidden} />
-      <Screenshot {...completion} />
-      <Files {...completion} />
+      {/* Accessory cluster trails the input, hairline-separated — input-centric
+          instrument row rather than the fork's interleaved icon pile. */}
+      <div className="flex items-center gap-1 border-l border-border pl-1.5">
+        <Audio {...completion} />
+        <Screenshot {...completion} />
+        <Files {...completion} />
+      </div>
     </>
   );
 };

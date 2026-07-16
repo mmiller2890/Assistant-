@@ -1,4 +1,4 @@
-import { Card, Updater, DragButton, CustomCursor, Button } from "@/components";
+import { Card, Updater, CustomCursor } from "@/components";
 import {
   SystemAudio,
   Completion,
@@ -7,16 +7,16 @@ import {
 } from "./components";
 import { useAppLifecycle } from "@/hooks";
 import { useApp } from "@/contexts";
-import { SparklesIcon } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { ErrorBoundary } from "react-error-boundary";
 import { ErrorLayout } from "@/layouts";
-import { getPlatform } from "@/lib";
+import { getPlatform, isMacOS } from "@/lib";
 
 const App = () => {
   const { isHidden, systemAudio } = useAppLifecycle();
   const { customizable } = useApp();
   const platform = getPlatform();
+  const modKey = isMacOS() ? "⌘" : "Ctrl";
 
   const openDashboard = async () => {
     try {
@@ -25,6 +25,21 @@ const App = () => {
       console.error("Failed to open dashboard:", error);
     }
   };
+
+  // System voice for the status band, mirroring StatusIndicator's priority.
+  const bandState = systemAudio?.error
+    ? { word: "error", cls: "text-destructive", dot: "bg-destructive" }
+    : systemAudio?.isAIProcessing
+      ? { word: "answering", cls: "text-primary", dot: "bg-primary" }
+      : systemAudio?.isProcessing
+        ? {
+            word: "transcribing",
+            cls: "text-muted-foreground",
+            dot: "bg-muted-foreground",
+          }
+        : systemAudio?.capturing
+          ? { word: "listening", cls: "text-primary", dot: "bg-primary" }
+          : { word: "idle", cls: "text-meta", dot: "bg-meta" };
 
   return (
     <ErrorBoundary
@@ -39,45 +54,67 @@ const App = () => {
           isHidden ? "hidden pointer-events-none" : ""
         }`}
       >
-        <Card className="w-full flex flex-row items-center gap-2 p-2">
-          <SystemAudio {...systemAudio} />
-          {systemAudio?.capturing ? (
-            <div className="flex flex-row items-center gap-2 justify-between w-full">
-              <div className="flex flex-1 items-center gap-2">
-                <AudioVisualizer isRecording={systemAudio?.capturing} />
-              </div>
-              <div className="flex !w-fit items-center gap-2">
-                <StatusIndicator
-                  setupRequired={systemAudio.setupRequired}
-                  error={systemAudio.error}
-                  isProcessing={systemAudio.isProcessing}
-                  isAIProcessing={systemAudio.isAIProcessing}
-                  capturing={systemAudio.capturing}
-                />
-              </div>
-            </div>
-          ) : null}
-
+        <Card className="w-full flex flex-col p-1.5 gap-0.5">
+          {/* Status band — the system's voice. Also the drag region: no grip
+              handle; grab the band itself. */}
           <div
-            className={`${
-              systemAudio?.capturing
-                ? "hidden w-full fade-out transition-all duration-300"
-                : "w-full flex flex-row gap-2 items-center"
-            }`}
+            data-tauri-drag-region
+            className="flex h-[14px] items-center justify-between px-1 font-mono text-[9px] select-none"
           >
-            <Completion isHidden={isHidden} />
-            <Button
-              size={"icon"}
-              className="cursor-pointer"
-              title="Open Dev Space"
-              onClick={openDashboard}
+            <span
+              className={`inline-flex items-center gap-1 pointer-events-none ${bandState.cls}`}
             >
-              <SparklesIcon className="h-4 w-4" />
-            </Button>
+              <span
+                className={`size-1 rounded-full ${bandState.dot} ${
+                  bandState.word !== "idle" ? "animate-pulse" : ""
+                }`}
+              />
+              {bandState.word}
+            </span>
+            <span className="text-meta pointer-events-none">
+              {modKey}⇧M capture · {modKey}\ hide
+            </span>
           </div>
 
-          <Updater />
-          <DragButton />
+          {/* Control row */}
+          <div className="flex flex-row items-center gap-1.5">
+            <button
+              onClick={openDashboard}
+              title="Open Dashboard"
+              className="flex size-9 shrink-0 items-center justify-center rounded-md border border-primary transition-colors hover:bg-primary/10"
+            >
+              <span className="size-2 rounded-sm bg-primary" />
+            </button>
+            <SystemAudio {...systemAudio} />
+            {systemAudio?.capturing ? (
+              <div className="flex flex-row items-center gap-2 justify-between w-full">
+                <div className="flex flex-1 items-center gap-2">
+                  <AudioVisualizer isRecording={systemAudio?.capturing} />
+                </div>
+                <div className="flex !w-fit items-center gap-2">
+                  <StatusIndicator
+                    setupRequired={systemAudio.setupRequired}
+                    error={systemAudio.error}
+                    isProcessing={systemAudio.isProcessing}
+                    isAIProcessing={systemAudio.isAIProcessing}
+                    capturing={systemAudio.capturing}
+                  />
+                </div>
+              </div>
+            ) : null}
+            {/* Kept mounted while capturing (hidden) so input/attachment state
+                survives a capture session — matches pre-redesign behavior. */}
+            <div
+              className={
+                systemAudio?.capturing
+                  ? "hidden"
+                  : "w-full flex flex-row gap-1.5 items-center"
+              }
+            >
+              <Completion isHidden={isHidden} />
+            </div>
+            <Updater />
+          </div>
         </Card>
         {customizable.cursor.type === "invisible" && platform !== "linux" ? (
           <CustomCursor />
