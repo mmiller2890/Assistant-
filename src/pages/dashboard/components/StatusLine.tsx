@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { useApp } from "@/contexts";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { PictureInPicture2 } from "lucide-react";
 
 export const StatusLine = () => {
@@ -7,10 +9,31 @@ export const StatusLine = () => {
   const ai = selectedAIProvider.provider || "no model";
   const stt = selectedSttProvider.provider || "no stt";
 
-  const popOut = () => {
-    invoke("show_overlay").catch((e) =>
-      console.error("Failed to show overlay:", e)
+  const [overlayVisible, setOverlayVisible] = useState(false);
+
+  useEffect(() => {
+    invoke<boolean>("is_overlay_visible")
+      .then(setOverlayVisible)
+      .catch((e) => console.error("Failed to query overlay visibility:", e));
+
+    // Payload semantics: `true` = overlay is now hidden (matches the Rust emit).
+    const unlistenPromise = listen<boolean>(
+      "toggle-window-visibility",
+      (event) => {
+        if (typeof event.payload === "boolean") {
+          setOverlayVisible(!event.payload);
+        }
+      }
     );
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, []);
+
+  const togglePopOut = () => {
+    invoke<boolean>("toggle_overlay")
+      .then(setOverlayVisible)
+      .catch((e) => console.error("Failed to toggle overlay:", e));
   };
 
   return (
@@ -35,12 +58,16 @@ export const StatusLine = () => {
         <span className="text-meta">·</span>
         <span>{stt}</span>
         <button
-          onClick={popOut}
-          title="Pop out the overlay — on top, invisible to screen share"
+          onClick={togglePopOut}
+          title={
+            overlayVisible
+              ? "Pop the overlay back in"
+              : "Pop out the overlay — on top, invisible to screen share"
+          }
           className="ml-1 inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:border-input hover:text-primary"
         >
           <PictureInPicture2 className="size-3" />
-          pop out
+          {overlayVisible ? "pop in" : "pop out"}
         </button>
       </div>
     </div>
