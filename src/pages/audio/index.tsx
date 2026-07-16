@@ -39,7 +39,7 @@ const Audio = () => {
     >
       <AudioSelection />
 
-      <div className="text-xs text-amber-600 bg-amber-500/10 p-3 rounded-md mb-4 space-y-2">
+      <div className="text-xs text-warn bg-warn/10 p-3 rounded-md mb-4 space-y-2">
         <p>
           <strong>⚠️ If selected devices don't work:</strong> Please verify your
           default system audio settings. Go to{" "}
@@ -48,7 +48,7 @@ const Audio = () => {
           Ensure the correct devices are set as default in your operating
           system.
         </p>
-        <p className="text-amber-600/80">
+        <p className="text-warn/80">
           <strong>Note:</strong> If the selected device fails or is unavailable,
           Assistant will automatically fall back to your system's default audio
           devices.

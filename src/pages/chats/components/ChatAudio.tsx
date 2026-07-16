@@ -42,7 +42,7 @@ export const ChatAudio = ({
         >
           <MicIcon
             className={`size-3 lg:size-4 ${
-              isRecording ? "text-red-500 animate-pulse" : ""
+              isRecording ? "text-primary animate-pulse" : ""
             }`}
           />
         </Button>
@@ -55,11 +55,11 @@ export const ChatAudio = ({
         sideOffset={8}
       >
         <div className="text-sm">
-          <div className="font-semibold text-orange-600 mb-1">
+          <div className="font-medium text-warn mb-1">
             Speech Provider Required
           </div>
           <p className="text-muted-foreground">
-            <div className="mt-2 flex items-center gap-1 text-orange-600">
+            <div className="mt-2 flex items-center gap-1 text-warn">
               <InfoIcon size={16} />
               <span>Provider not configured</span>
             </div>

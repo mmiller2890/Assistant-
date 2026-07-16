@@ -88,7 +88,7 @@ export const CreateEditProvider = ({
               <Textarea
                 className={cn(
                   "h-74 font-mono text-sm",
-                  errors.curl && "border-red-500"
+                  errors.curl && "border-destructive"
                 )}
                 placeholder={`curl -X POST "https://api.openai.com/v1/audio/transcriptions" \\
       -H "Authorization: Bearer {{API_KEY}}" \\
@@ -100,7 +100,7 @@ export const CreateEditProvider = ({
                 }
               />
               {errors.curl && (
-                <p className="text-xs text-red-500 mt-1">{errors.curl}</p>
+                <p className="text-xs text-destructive mt-1">{errors.curl}</p>
               )}
 
               {/* Variable Instructions */}
@@ -187,7 +187,7 @@ export const CreateEditProvider = ({
                 disabled={true}
               />
             </div>
-            <span className="text-xs italic text-red-500">
+            <span className="text-xs italic text-destructive">
               Streaming is not supported for STT providers. it will be fixed in
               the future.
             </span>
@@ -226,7 +226,7 @@ export const CreateEditProvider = ({
               disabled={!formData.curl.trim()}
               className={cn(
                 "h-11 border-1 border-input/50 focus:border-primary/50 transition-colors",
-                errors.curl && "bg-red-500 hover:bg-red-600 text-white"
+                errors.curl && "bg-destructive hover:bg-destructive/90 text-foreground"
               )}
             >
               {errors.curl ? (

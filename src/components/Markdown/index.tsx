@@ -49,7 +49,7 @@ const COMPONENTS = {
     return (
       <a
         href={href}
-        className="text-gray-600 underline underline-offset-2 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100 cursor-pointer"
+        className="text-primary underline underline-offset-2 hover:text-primary/80 cursor-pointer"
         onClick={handleClick}
         {...props}
       >

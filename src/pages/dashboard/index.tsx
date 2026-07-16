@@ -33,7 +33,7 @@ const Welcome = () => {
       label: "Chats",
       description: "Start a conversation with your AI",
       href: "/chats",
-      color: "text-blue-500",
+      color: "text-primary",
     },
     {
       icon: WandSparkles,
@@ -47,7 +47,7 @@ const Welcome = () => {
       label: "Dev Space",
       description: "Configure AI & STT providers",
       href: "/dev-space",
-      color: "text-amber-500",
+      color: "text-warn",
     },
     {
       icon: Monitor,
@@ -78,7 +78,7 @@ const Welcome = () => {
       description="Your privacy-first AI assistant — everything runs locally."
     >
       {/* Hero */}
-      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-background to-background p-8">
+      <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-8">
         <div className="absolute -top-12 -right-12 opacity-10">
           <Sparkles className="size-48 text-primary" />
         </div>
@@ -117,9 +117,9 @@ const Welcome = () => {
                 </span>
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1">
-                <AlertCircle className="size-3.5 text-amber-500" />
-                <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+              <div className="flex items-center gap-1.5 rounded-full bg-warn/10 px-3 py-1">
+                <AlertCircle className="size-3.5 text-warn" />
+                <span className="text-xs font-medium text-warn">
                   Not configured
                 </span>
               </div>
@@ -152,8 +152,8 @@ const Welcome = () => {
         <Card className="border-border/60 shadow-none">
           <CardHeader className="flex flex-row items-center justify-between pb-3">
             <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-xl bg-blue-500/10">
-                <Mic className="size-5 text-blue-500" />
+              <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
+                <Mic className="size-5 text-primary" />
               </div>
               <div>
                 <CardTitle className="text-sm">Speech to Text</CardTitle>
@@ -168,9 +168,9 @@ const Welcome = () => {
                 </span>
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1">
-                <AlertCircle className="size-3.5 text-amber-500" />
-                <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+              <div className="flex items-center gap-1.5 rounded-full bg-warn/10 px-3 py-1">
+                <AlertCircle className="size-3.5 text-warn" />
+                <span className="text-xs font-medium text-warn">
                   Not configured
                 </span>
               </div>

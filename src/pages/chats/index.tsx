@@ -70,7 +70,7 @@ const Dashboard = () => {
                     {groupedConversations[dateKey].map((doc) => (
                       <Card
                         key={doc.id}
-                        className="shadow-none select-none p-4 gap-0 group relative transition-all !bg-black/5 dark:!bg-white/5 hover:!border-primary/50 cursor-pointer"
+                        className="shadow-none select-none p-4 gap-0 group relative transition-all !bg-secondary/50 hover:!border-primary/50 cursor-pointer"
                         onClick={() => navigate(`/chats/view/${doc.id}`)}
                       >
                         <div className="flex items-center justify-between">

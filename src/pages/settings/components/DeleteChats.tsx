@@ -28,8 +28,8 @@ export const DeleteChats = ({
 
       <div className="space-y-2">
         {isDeleting && (
-          <div className="p-3 bg-green-50 border border-green-200 rounded-md">
-            <p className="text-xs text-green-700 font-medium">
+          <div className="p-3 bg-ok/10 border border-ok/30 rounded-md">
+            <p className="text-xs text-ok font-medium">
               ✅ All chat history has been successfully deleted.
             </p>
           </div>
@@ -58,7 +58,7 @@ export const DeleteChats = ({
 
       {/* Confirmation Dialog */}
       {showDeleteConfirmDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-background/70 flex items-center justify-center z-50">
           <div className="bg-background border rounded-lg p-6 max-w-md mx-4">
             <h3 className="text-lg font-semibold mb-2">
               Delete All Chat History

@@ -51,7 +51,7 @@ export const ResponseLength = () => {
               </p>
             </div>
             {selectedLength === length.id && (
-              <CheckCircle2 className="size-5 text-green-500 flex-shrink-0 absolute top-2 right-2" />
+              <CheckCircle2 className="size-5 text-ok flex-shrink-0 absolute top-2 right-2" />
             )}
           </Card>
         ))}

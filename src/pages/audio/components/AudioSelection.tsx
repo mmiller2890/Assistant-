@@ -198,7 +198,7 @@ export const AudioSelection = () => {
 
           {/* Success message */}
           {showSuccess.input && (
-            <div className="text-xs text-green-500 bg-green-500/10 p-3 rounded-md">
+            <div className="text-xs text-ok bg-ok/10 p-3 rounded-md">
               <strong>✓ Microphone changed successfully!</strong>
               <br />
               Using: {selectedAudioDevices.input.name || "Unknown device"}
@@ -207,7 +207,7 @@ export const AudioSelection = () => {
 
           {/* Permission Notice */}
           {devices?.input?.length === 0 && !isLoadingDevices && (
-            <div className="text-xs text-amber-500 bg-amber-500/10 p-3 rounded-md">
+            <div className="text-xs text-warn bg-warn/10 p-3 rounded-md">
               <strong>
                 ⚠️ Click the refresh button to load your microphone devices.
               </strong>{" "}
@@ -297,7 +297,7 @@ export const AudioSelection = () => {
 
           {/* Success message */}
           {showSuccess.output && (
-            <div className="text-xs text-green-500 bg-green-500/10 p-3 rounded-md">
+            <div className="text-xs text-ok bg-ok/10 p-3 rounded-md">
               <strong>✓ Output device changed successfully!</strong>
               <br />
               Using: {selectedAudioDevices.output.name || "Unknown device"}
@@ -306,7 +306,7 @@ export const AudioSelection = () => {
 
           {/* Permission Notice */}
           {devices?.output?.length === 0 && !isLoadingDevices && (
-            <div className="text-xs text-amber-500 bg-amber-500/10 p-3 rounded-md">
+            <div className="text-xs text-warn bg-warn/10 p-3 rounded-md">
               <strong>
                 ⚠️ Click the refresh button to load your system audio devices.
               </strong>{" "}

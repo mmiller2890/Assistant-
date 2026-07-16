@@ -188,7 +188,7 @@ export const AudioRecorder = ({
       </div>
       <div className="flex items-center justify-between px-4 py-2.5 border-t bg-muted/5">
         <div className="flex items-center gap-2">
-          <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse" />
+          <div className="h-2 w-2 bg-primary rounded-full animate-pulse" />
           <span className="text-sm font-mono tabular-nums font-medium">
             {formatTime(duration)}
           </span>

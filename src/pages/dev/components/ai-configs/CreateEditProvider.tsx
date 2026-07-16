@@ -85,7 +85,7 @@ export const CreateEditProvider = ({
               <Textarea
                 className={cn(
                   "h-74 font-mono text-sm",
-                  errors.curl && "border-red-500"
+                  errors.curl && "border-destructive"
                 )}
                 placeholder={`curl --location 'http://127.0.0.1:1337/v1/chat/completions' \
 --header 'Content-Type: application/json' \
@@ -120,7 +120,7 @@ export const CreateEditProvider = ({
                 }
               />
               {errors.curl && (
-                <p className="text-xs text-red-500 mt-1">{errors.curl}</p>
+                <p className="text-xs text-destructive mt-1">{errors.curl}</p>
               )}
 
               {/* Variable Instructions */}
@@ -261,7 +261,7 @@ export const CreateEditProvider = ({
               disabled={!formData.curl.trim()}
               className={cn(
                 "h-11 border-1 border-input/50 focus:border-primary/50 transition-colors",
-                errors.curl && "bg-red-500 hover:bg-red-600 text-white"
+                errors.curl && "bg-destructive hover:bg-destructive/90 text-foreground"
               )}
             >
               {errors.curl ? (

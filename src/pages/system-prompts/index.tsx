@@ -208,12 +208,12 @@ const SystemPrompts = () => {
                 className={`relative border  lg:border-2 shadow-none p-4 pb-10 gap-0 group cursor-pointer transition-all hover:shadow-sm ${
                   isSelected
                     ? "!bg-primary/5 dark:!bg-primary/10 border-primary"
-                    : "!bg-black/5 dark:!bg-white/5 border-transparent"
+                    : "!bg-secondary/50 border-transparent"
                 }`}
                 onClick={() => handleCardClick(prompt.id)}
               >
                 {isSelected && (
-                  <CheckCircle2 className="size-5 text-green-500 flex-shrink-0 absolute top-2 right-2" />
+                  <CheckCircle2 className="size-5 text-ok flex-shrink-0 absolute top-2 right-2" />
                 )}
                 <CardHeader className="p-0 pb-0 select-none">
                   <div className="flex items-start justify-between gap-2 relative">

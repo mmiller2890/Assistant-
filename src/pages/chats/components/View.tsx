@@ -100,7 +100,7 @@ const View = () => {
           >
             {isAttached ? (
               <>
-                <Check className="size-3 lg:size-4 text-green-600" />
+                <Check className="size-3 lg:size-4 text-ok" />
                 Attached
               </>
             ) : (
@@ -119,7 +119,7 @@ const View = () => {
           >
             {isDownloaded ? (
               <>
-                <Check className="size-3 lg:size-4 text-green-600" />
+                <Check className="size-3 lg:size-4 text-ok" />
                 Downloaded
               </>
             ) : (
@@ -226,7 +226,7 @@ const View = () => {
       )}
 
       {/* Sticky Footer Input */}
-      <div className="absolute bottom-0 left-0 right-0 bg-background/10 backdrop-blur">
+      <div className="absolute bottom-0 left-0 right-0 bg-background">
         {completion.error && (
           <div className="px-4 pt-3 pb-0">
             <div className="p-2 bg-destructive/10 border border-destructive/20 rounded text-sm text-destructive">
