@@ -3,6 +3,10 @@ import ReactDOM from "react-dom/client";
 import Overlay from "./components/Overlay";
 import { AppProvider, ThemeProvider } from "./contexts";
 import "./global.css";
+import "@fontsource/geist-sans/400.css";
+import "@fontsource/geist-sans/500.css";
+import "@fontsource/geist-mono/400.css";
+import "@fontsource/geist-mono/500.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import AppRoutes from "./routes";
 
