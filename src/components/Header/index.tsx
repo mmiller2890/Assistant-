@@ -34,7 +34,7 @@ export const Header = ({
           rightSlot ? "flex-row justify-between items-center" : "flex-col"
         } ${
           isMainTitle && (showBorder || !rightSlot)
-            ? "border-b border-input/50 pb-2"
+            ? "border-b border-border pb-2"
             : ""
         }`,
         className
@@ -49,7 +49,7 @@ export const Header = ({
         <div className="flex flex-col">
           <Label
             className={`${cn(
-              "font-semibold line-clamp-1",
+              "font-medium line-clamp-1",
               isMainTitle
                 ? "text-md lg:text-lg"
                 : "text-xs lg:text-sm transition-all duration-300"
