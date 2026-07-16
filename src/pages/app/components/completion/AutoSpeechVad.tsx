@@ -105,7 +105,7 @@ const AutoSpeechVADInternal = ({
         className="cursor-pointer"
       >
         {isTranscribing ? (
-          <LoaderCircleIcon className="h-4 w-4 animate-spin text-green-500" />
+          <LoaderCircleIcon className="h-4 w-4 animate-spin text-primary" />
         ) : vad.userSpeaking ? (
           <LoaderCircleIcon className="h-4 w-4 animate-spin" />
         ) : vad.listening ? (

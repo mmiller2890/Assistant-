@@ -105,9 +105,9 @@ export const Files = ({
                     />
 
                     {/* File info overlay */}
-                    <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-white p-2 text-xs">
+                    <div className="absolute bottom-0 left-0 right-0 bg-background/80 text-foreground p-2 text-xs">
                       <div className="truncate font-medium">{file.name}</div>
-                      <div className="text-gray-300">
+                      <div className="text-muted-foreground">
                         {(file.size / 1024 / 1024).toFixed(2)} MB
                       </div>
                     </div>

@@ -24,24 +24,24 @@ export const StatusIndicator = ({
     <div className="flex flex-1 items-center gap-2 px-3 py-2 justify-end">
       {/* Priority: Error > AI Processing > Transcribing > Listening */}
       {error && !setupRequired ? (
-        <div className="flex items-center gap-2 text-red-600">
+        <div className="flex items-center gap-2 text-destructive">
           <AlertCircleIcon className="w-4 h-4" />
-          <span className="text-xs font-medium">{error}</span>
+          <span className="font-mono text-xs">{error}</span>
         </div>
       ) : isAIProcessing ? (
-        <div className="flex items-center gap-2 animate-pulse">
-          <LoaderIcon className="w-4 h-4 animate-spin" />
-          <span className="text-xs font-medium">Generating response...</span>
+        <div className="flex items-center gap-2 text-primary">
+          <LoaderIcon className="w-3.5 h-3.5 animate-spin" />
+          <span className="font-mono text-xs">answering</span>
         </div>
       ) : isProcessing ? (
-        <div className="flex items-center gap-2 animate-pulse">
-          <LoaderIcon className="w-4 h-4 animate-spin" />
-          <span className="text-xs font-medium">Transcribing...</span>
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <LoaderIcon className="w-3.5 h-3.5 animate-spin" />
+          <span className="font-mono text-xs">transcribing</span>
         </div>
       ) : capturing ? (
-        <div className="flex items-center gap-2 text-green-600 animate-pulse">
-          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          <span className="text-xs font-medium">Listening...</span>
+        <div className="flex items-center gap-2 text-primary">
+          <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+          <span className="font-mono text-xs">listening</span>
         </div>
       ) : null}
     </div>

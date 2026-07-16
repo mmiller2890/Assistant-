@@ -51,13 +51,13 @@ export const Audio = ({
         sideOffset={8}
       >
         <div className="text-sm select-none">
-          <div className="font-semibold text-orange-600 mb-1">
+          <div className="font-medium text-warn mb-1">
             Speech Provider Configuration Required
           </div>
           <p className="text-muted-foreground">
             {!speechProviderStatus ? (
               <>
-                <div className="mt-2 flex flex-row gap-1 items-center text-orange-600">
+                <div className="mt-2 flex flex-row gap-1 items-center text-warn">
                   <InfoIcon size={16} />
                   {selectedSttProvider.provider ? null : (
                     <p>PROVIDER IS MISSING</p>

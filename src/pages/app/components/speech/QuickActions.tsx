@@ -40,11 +40,11 @@ export const QuickActions = ({
   };
 
   return (
-    <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-2">
+    <div className="rounded-lg border border-border bg-card p-3 space-y-2">
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-1.5">
-          <ZapIcon className="w-3.5 h-3.5 text-primary" />
-          <h4 className="text-xs font-medium">Quick Actions</h4>
+          <ZapIcon className="w-3.5 h-3.5 text-muted-foreground" />
+          <h4 className="font-mono text-[11px] text-meta">quick actions</h4>
         </div>
         <div className="flex items-center gap-1">
           {show && (
@@ -88,8 +88,8 @@ export const QuickActions = ({
                 }
               }}
               className={cn(
-                "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all",
-                "bg-primary/10 text-primary hover:bg-primary/20",
+                "inline-flex items-center gap-1 px-2.5 py-1 rounded-md font-mono text-xs transition-colors",
+                "bg-secondary border border-border text-muted-foreground hover:text-foreground hover:border-input",
                 isManaging && "pr-1.5"
               )}
             >
@@ -101,7 +101,7 @@ export const QuickActions = ({
                     e.stopPropagation();
                     onRemoveAction(action);
                   }}
-                  className="ml-0.5 p-0.5 rounded-full hover:bg-red-500/20 text-red-500"
+                  className="ml-0.5 p-0.5 rounded-full hover:bg-destructive/20 text-destructive"
                 >
                   <Trash2Icon className="w-2.5 h-2.5" />
                 </button>

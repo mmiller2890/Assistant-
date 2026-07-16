@@ -47,7 +47,7 @@ export const MessageHistory = ({
         <div className="border-b border-input/50 p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center flex-col">
-              <h2 className="text-lg font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
+              <h2 className="text-lg font-medium text-foreground">
                 Current Conversation
               </h2>
               <p className="text-xs text-muted-foreground">

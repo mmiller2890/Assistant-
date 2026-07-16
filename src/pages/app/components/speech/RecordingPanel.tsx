@@ -36,9 +36,9 @@ export const RecordingPanel = ({
       {isStreaming && partialTranscription && !isWorking && (
         <div className="p-3">
           <div className="flex items-center gap-1.5 mb-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-            <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide">
-              Listening
+            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+            <span className="font-mono text-[9px] text-muted-foreground">
+              listening
             </span>
           </div>
           <p className="text-sm italic text-muted-foreground leading-relaxed">
@@ -101,16 +101,16 @@ export const RecordingPanel = ({
                 <div className="space-y-1">
                   <div className="w-full bg-muted rounded-full h-1">
                     <div
-                      className="bg-red-500 h-1 rounded-full transition-all duration-500"
+                      className="bg-primary h-1 rounded-full transition-all duration-500"
                       style={{
                         width: `${maxDuration > 0 ? (recordingProgress / maxDuration) * 100 : 0}%`,
                       }}
                     />
                   </div>
-                  <div className="flex justify-between text-[9px] text-muted-foreground">
+                  <div className="flex justify-between font-mono text-[9px] text-muted-foreground">
                     <span className="flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                      Recording {recordingProgress}s
+                      <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                      recording {recordingProgress}s
                     </span>
                     <span>{maxDuration}s max</span>
                   </div>

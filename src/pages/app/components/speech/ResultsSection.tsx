@@ -38,17 +38,17 @@ export const ResultsSection = ({
   const transcriptionText = lastTranscription || (isStreaming ? partialTranscription : "");
 
   return (
-    <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
+    <div className="rounded-lg border border-border bg-card p-3 space-y-3">
       {/* Header with toggle */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <SparklesIcon className="w-3.5 h-3.5 text-primary" />
-          <h4 className="text-xs font-medium">
-            {conversationMode ? "Conversation" : "AI Response"}
+          <h4 className="font-mono text-[11px] text-primary">
+            {conversationMode ? "conversation" : "answer"}
           </h4>
         </div>
         <div className="flex items-center gap-2 select-none">
-          <span className="text-[9px] text-muted-foreground/50 bg-muted/50 px-1 rounded">
+          <span className="font-mono text-[9px] text-meta bg-secondary px-1 rounded">
             {modKey}+K
           </span>
           <Switch
@@ -63,24 +63,29 @@ export const ResultsSection = ({
       {/* RESPONSE MODE: System as text, then AI response */}
       {!conversationMode && (
         <div className="space-y-2">
-          {/* System Input - Just text with bold label */}
+          {/* System Input - mono meta label, sans content */}
           {transcriptionText && (
-            <p className="text-[11px] text-muted-foreground">
-              <span className="font-semibold">System:</span>{" "}
-              <span className={isStreaming && !lastTranscription ? "italic opacity-60" : ""}>
+            <p className="text-[11px]">
+              <span className="font-mono text-meta">system</span>{" "}
+              <span
+                className={cn(
+                  "text-muted-foreground",
+                  isStreaming && !lastTranscription && "italic opacity-60"
+                )}
+              >
                 {transcriptionText}
               </span>
             </p>
           )}
 
-          {/* AI Response */}
+          {/* AI Response — signal left rule */}
           {hasResponse && (
-            <div>
+            <div className="border-l-2 border-primary pl-3">
               {isAIProcessing && !lastAIResponse ? (
                 <div className="flex items-center gap-2 py-2">
                   <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                  <span className="text-xs text-muted-foreground">
-                    Generating response...
+                  <span className="font-mono text-xs text-muted-foreground">
+                    answering
                   </span>
                 </div>
               ) : (
@@ -99,20 +104,20 @@ export const ResultsSection = ({
       {/* CONVERSATION MODE: AI on top, then System, then history */}
       {conversationMode && (
         <div className="space-y-2">
-          {/* AI Response - First (on top) */}
+          {/* AI Response - First (on top) — signal left rule */}
           {hasResponse && (
-            <div className="rounded-md bg-background/50 p-2.5">
+            <div className="rounded-md border-l-2 border-primary bg-background p-2.5">
               <div className="flex items-center gap-1.5 mb-1">
-                <BotIcon className="h-3 w-3 text-muted-foreground" />
-                <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide">
-                  AI
+                <BotIcon className="h-3 w-3 text-primary" />
+                <span className="font-mono text-[9px] text-primary">
+                  answer
                 </span>
               </div>
               {isAIProcessing && !lastAIResponse ? (
                 <div className="flex items-center gap-2">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                  <span className="text-[10px] text-muted-foreground">
-                    Generating...
+                  <span className="font-mono text-[10px] text-muted-foreground">
+                    answering
                   </span>
                 </div>
               ) : (
@@ -128,11 +133,11 @@ export const ResultsSection = ({
 
           {/* System Input - Second */}
           {transcriptionText && (
-            <div className="rounded-md border-l-2 border-primary/50 bg-primary/5 p-2.5">
+            <div className="rounded-md border border-border bg-background p-2.5">
               <div className="flex items-center gap-1.5 mb-1">
-                <HeadphonesIcon className="h-3 w-3 text-primary" />
-                <span className="text-[9px] font-medium text-primary uppercase tracking-wide">
-                  System
+                <HeadphonesIcon className="h-3 w-3 text-muted-foreground" />
+                <span className="font-mono text-[9px] text-meta">
+                  system
                 </span>
               </div>
               <p className={cn("text-sm", isStreaming && !lastTranscription && "italic opacity-60")}>
@@ -143,9 +148,9 @@ export const ResultsSection = ({
 
           {/* Previous Messages */}
           {hasHistory && (
-            <div className="space-y-2 pt-2 border-t border-border/50">
-              <p className="text-[9px] text-muted-foreground uppercase tracking-wide">
-                Previous
+            <div className="space-y-2 pt-2 border-t border-border">
+              <p className="font-mono text-[9px] text-meta">
+                previous
               </p>
               <div className="space-y-1.5 max-h-40 overflow-y-auto">
                 {conversation.messages
@@ -157,12 +162,12 @@ export const ResultsSection = ({
                       className={cn(
                         "p-2 rounded-md text-[11px]",
                         message.role === "user"
-                          ? "bg-primary/5 border-l-2 border-primary/30"
-                          : "bg-background/50"
+                          ? "bg-secondary/50 border-l-2 border-border"
+                          : "bg-background"
                       )}
                     >
-                      <span className="text-[8px] font-medium text-muted-foreground uppercase">
-                        {message.role === "user" ? "System" : "AI"}
+                      <span className="font-mono text-[8px] text-meta">
+                        {message.role === "user" ? "system" : "answer"}
                       </span>
                       <div className="text-muted-foreground leading-relaxed mt-0.5">
                         <Markdown>{message.content}</Markdown>

@@ -159,12 +159,12 @@ export const SystemAudio = (props: useSystemAudioType) => {
   }, []);
 
   const getButtonIcon = () => {
-    if (setupRequired) return <AlertCircleIcon className="text-orange-500" />;
+    if (setupRequired) return <AlertCircleIcon className="text-warn" />;
     if (error && !setupRequired)
-      return <AlertCircleIcon className="text-red-500" />;
+      return <AlertCircleIcon className="text-destructive" />;
     if (isProcessing) return <LoaderIcon className="animate-spin" />;
     if (capturing)
-      return <AudioLinesIcon className="text-green-500 animate-pulse" />;
+      return <AudioLinesIcon className="text-primary animate-pulse" />;
     return <HeadphonesIcon />;
   };
 
@@ -192,8 +192,8 @@ export const SystemAudio = (props: useSystemAudioType) => {
           title={getButtonTitle()}
           onClick={handleToggleCapture}
           className={cn(
-            capturing && "bg-green-50 hover:bg-green-100",
-            error && "bg-red-100 hover:bg-red-200"
+            capturing && "bg-primary/10 hover:bg-primary/20",
+            error && "bg-destructive/15 hover:bg-destructive/25"
           )}
         >
           {getButtonIcon()}
@@ -318,13 +318,13 @@ export const SystemAudio = (props: useSystemAudioType) => {
 
                 {/* Error Display */}
                 {error && !setupRequired && (
-                  <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-50 border border-red-200">
-                    <AlertCircleIcon className="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />
+                  <div className="flex items-start gap-2 p-2.5 rounded-lg bg-destructive/10 border border-destructive/30">
+                    <AlertCircleIcon className="w-3.5 h-3.5 text-destructive flex-shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-[10px] font-medium text-red-800">
-                        Error
+                      <p className="font-mono text-[10px] text-destructive">
+                        error
                       </p>
-                      <p className="text-[10px] text-red-700">{error}</p>
+                      <p className="text-[10px] text-muted-foreground">{error}</p>
                     </div>
                   </div>
                 )}

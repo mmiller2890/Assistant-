@@ -36,38 +36,38 @@ const STATUS_CONFIG: Record<
   { label: string; color: string; bgColor: string; icon?: React.ReactNode }
 > = {
   ready: {
-    label: "Ready",
+    label: "ready",
     color: "text-muted-foreground",
-    bgColor: "bg-muted",
+    bgColor: "bg-secondary",
   },
   listening: {
-    label: "Listening",
-    color: "text-teal-600",
-    bgColor: "bg-teal-100",
+    label: "listening",
+    color: "text-primary",
+    bgColor: "bg-primary/10",
     icon: <AudioWaveformIcon className="w-3 h-3" />,
   },
   recording: {
-    label: "Recording",
-    color: "text-red-600",
-    bgColor: "bg-red-100",
+    label: "recording",
+    color: "text-primary",
+    bgColor: "bg-primary/10",
     icon: <MicIcon className="w-3 h-3" />,
   },
   processing: {
-    label: "Transcribing",
-    color: "text-orange-600",
-    bgColor: "bg-orange-100",
+    label: "transcribing",
+    color: "text-muted-foreground",
+    bgColor: "bg-secondary",
     icon: <LoaderIcon className="w-3 h-3 animate-spin" />,
   },
   "ai-processing": {
-    label: "AI Responding",
-    color: "text-purple-600",
-    bgColor: "bg-purple-100",
+    label: "answering",
+    color: "text-primary",
+    bgColor: "bg-primary/10",
     icon: <LoaderIcon className="w-3 h-3 animate-spin" />,
   },
   error: {
-    label: "Error",
-    color: "text-red-600",
-    bgColor: "bg-red-100",
+    label: "error",
+    color: "text-destructive",
+    bgColor: "bg-destructive/10",
     icon: <AlertCircleIcon className="w-3 h-3" />,
   },
 };
@@ -86,14 +86,14 @@ export const Header = ({
 
   return (
     <div>
-      <h2 className="font-semibold text-sm">
+      <h2 className="font-medium text-sm">
         {setupRequired ? "Setup Required" : "Speech Assistant"}
       </h2>
       {!setupRequired && (
         <div className="flex items-center gap-1.5 mt-1">
           <span
             className={cn(
-              "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium",
+              "inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-border font-mono text-[10px]",
               statusConfig.bgColor,
               statusConfig.color
             )}
@@ -101,8 +101,8 @@ export const Header = ({
             {statusConfig.icon}
             {statusConfig.label}
           </span>
-          <span className="text-[10px] text-muted-foreground">
-            {isVadMode ? "Auto-detect" : "Manual"} mode
+          <span className="font-mono text-[10px] text-meta">
+            {isVadMode ? "auto-detect" : "manual"}
           </span>
         </div>
       )}
