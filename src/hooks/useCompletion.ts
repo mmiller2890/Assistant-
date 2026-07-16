@@ -59,7 +59,12 @@ export const useCompletion = () => {
     systemPrompt,
     screenshotConfiguration,
     setScreenshotConfiguration,
+    selectedSttProvider,
+    localApiEnabled,
   } = useApp();
+  // The mic popover only ever shows the missing-config warning, so micOpen is
+  // meaningful (opens the popover / expands the window) only when unconfigured.
+  const sttConfigured = Boolean(localApiEnabled || selectedSttProvider.provider);
   const globalShortcuts = useGlobalShortcuts();
 
   const [state, setState] = useState<CompletionState>({
@@ -761,11 +766,15 @@ export const useCompletion = () => {
 
   useEffect(() => {
     resizeWindow(
-      isPopoverOpen || micOpen || messageHistoryOpen || isFilesPopoverOpen
+      isPopoverOpen ||
+        (micOpen && !sttConfigured) ||
+        messageHistoryOpen ||
+        isFilesPopoverOpen
     );
   }, [
     isPopoverOpen,
     micOpen,
+    sttConfigured,
     messageHistoryOpen,
     resizeWindow,
     isFilesPopoverOpen,
@@ -969,8 +978,10 @@ export const useCompletion = () => {
 
   const toggleRecording = useCallback(() => {
     setEnableVAD(!enableVAD);
-    setMicOpen(!micOpen);
-  }, [enableVAD, micOpen]);
+    // Only surface the config-warning popover when unconfigured; when
+    // configured, toggling voice must not open an (invisible) popover.
+    setMicOpen(sttConfigured ? false : !micOpen);
+  }, [enableVAD, micOpen, sttConfigured]);
 
   // Cleanup abort controller on unmount
   useEffect(() => {

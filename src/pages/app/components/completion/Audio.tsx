@@ -16,9 +16,22 @@ export const Audio = ({
     useApp();
 
   const speechProviderStatus = selectedSttProvider.provider;
+  const configured = Boolean(localApiEnabled || speechProviderStatus);
 
   return (
-    <Popover open={micOpen} onOpenChange={setMicOpen}>
+    // The popover exists only to explain missing provider config. When
+    // configured, keep it shut: letting the trigger set micOpen expanded the
+    // window 600px tall with the content `hidden` — an invisible pane that ate
+    // clicks and hijacked the cursor (window is transparent + global cursor
+    // override). Mic click must do exactly one thing: toggle voice detection.
+    <Popover
+      open={micOpen && !configured}
+      onOpenChange={(open) => {
+        if (!configured) {
+          setMicOpen(open);
+        }
+      }}
+    >
       <PopoverTrigger asChild>
         {(localApiEnabled || speechProviderStatus) && enableVAD ? (
           <AutoSpeechVAD
@@ -42,14 +55,7 @@ export const Audio = ({
         )}
       </PopoverTrigger>
 
-      <PopoverContent
-        align="end"
-        side="bottom"
-        className={`w-80 p-3 ${
-          localApiEnabled || speechProviderStatus ? "hidden" : ""
-        }`}
-        sideOffset={8}
-      >
+      <PopoverContent align="end" side="bottom" className="w-80 p-3" sideOffset={8}>
         <div className="text-sm select-none">
           <div className="font-medium text-warn mb-1">
             Speech Provider Configuration Required
