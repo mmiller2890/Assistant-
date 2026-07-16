@@ -2,6 +2,8 @@
 
 A lightning-fast, privacy-first AI assistant that works seamlessly during meetings, interviews, and conversations without anyone knowing.
 
+<img src="images/app-hero.svg" alt="Assistant — the session dashboard with live transcript and answers, and the screen-share-invisible pop-out bar above it" width="820" />
+
 This is a **local-only fork** of the open-source [Pluely](https://github.com/iamsrikanthnani/pluely) project. The hosted cloud API, license activation, auto-updater, and all telemetry have been removed. It runs entirely against your own configured providers — including built-in support for **Ollama** and, on macOS Apple Silicon, **FluidAudio** in-process ASR as the default speech-to-text (no Python server required), with **Whisper**/**Parakeet**/**Nemotron** as advanced local options.
 
 ## ✨ Features
