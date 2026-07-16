@@ -20,7 +20,7 @@ type ThemeProviderState = {
 const initialState: ThemeProviderState = {
   theme: "system",
   setTheme: () => null,
-  transparency: 10,
+  transparency: 0,
   onSetTransparency: () => null,
 };
 
@@ -37,7 +37,7 @@ export function ThemeProvider({
   );
   const [transparency, setTransparency] = useState<number>(() => {
     const stored = safeLocalStorage.getItem(STORAGE_KEYS.TRANSPARENCY);
-    return stored ? parseInt(stored, 10) : 10;
+    return stored ? parseInt(stored, 10) : 0;
   });
 
   const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
@@ -57,37 +57,12 @@ export function ThemeProvider({
     return () => window.removeEventListener("storage", handleStorageChange);
   }, [storageKey]);
 
+  // Slate & signal is dark-only for now. Theme state is retained so a future
+  // light variant can restore class switching without plumbing changes.
   useEffect(() => {
     const root = window.document.documentElement;
-
-    const applyTheme = (currentTheme: Theme) => {
-      root.classList.remove("light", "dark");
-
-      if (currentTheme === "system") {
-        const systemTheme = mediaQuery.matches ? "dark" : "light";
-        root.classList.add(systemTheme);
-      } else {
-        root.classList.add(currentTheme);
-      }
-    };
-
-    const updateTheme = () => {
-      if (theme === "system") {
-        applyTheme("system");
-      }
-    };
-
-    applyTheme(theme);
-
-    if (theme === "system") {
-      mediaQuery.addEventListener("change", updateTheme);
-    }
-
-    return () => {
-      if (theme === "system") {
-        mediaQuery.removeEventListener("change", updateTheme);
-      }
-    };
+    root.classList.remove("light", "dark");
+    root.classList.add("dark");
   }, [theme]);
 
   // Apply transparency globally
