@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { buildAIHistory, MAX_AI_HISTORY_MESSAGES } from "./ai-history.function";
+import {
+  buildAIHistory,
+  buildSummaryTranscript,
+  MAX_AI_HISTORY_MESSAGES,
+  MAX_SUMMARY_TRANSCRIPT_CHARS,
+} from "./ai-history.function";
 import { ChatMessage } from "@/types/completion";
 
 // Conversation state is newest-first, so index 0 is the most recent message.
@@ -7,9 +12,10 @@ function msg(
   id: string,
   role: ChatMessage["role"],
   content: string,
-  timestamp: number
+  timestamp: number,
+  speaker?: string
 ): ChatMessage {
-  return { id, role, content, timestamp };
+  return { id, role, content, timestamp, ...(speaker ? { speaker } : {}) };
 }
 
 describe("buildAIHistory", () => {
@@ -57,5 +63,45 @@ describe("buildAIHistory", () => {
 
   it("handles an empty conversation", () => {
     expect(buildAIHistory([])).toEqual([]);
+  });
+});
+
+describe("buildSummaryTranscript", () => {
+  it("renders chronologically with speaker attribution", () => {
+    const stored = [
+      msg("m3", "assistant", "third", 300),
+      msg("m2", "user", "second", 200, "Speaker 1"),
+      msg("m1", "user", "first", 100),
+    ];
+    expect(buildSummaryTranscript(stored)).toBe(
+      "Speaker: first\nSpeaker 1: second\nAssistant: third"
+    );
+  });
+
+  it("keeps the most recent turns when over the character budget", () => {
+    // Each line is ~60 chars; enough of them to blow the budget.
+    const count = Math.ceil(MAX_SUMMARY_TRANSCRIPT_CHARS / 50) + 20;
+    const stored = Array.from({ length: count }, (_, i) =>
+      msg(`m${i}`, "user", `line-${count - i}`.padEnd(50, "x"), (count - i) * 100)
+    );
+    const result = buildSummaryTranscript(stored);
+
+    expect(result.length).toBeLessThanOrEqual(MAX_SUMMARY_TRANSCRIPT_CHARS);
+    // The newest turn survives; the oldest is dropped.
+    expect(result).toContain(`line-${count}`);
+    expect(result).not.toContain("line-1x");
+    // Truncation is disclosed so the model knows it's a partial transcript.
+    expect(result).toContain("[earlier transcript truncated]");
+  });
+
+  it("does not truncate a transcript within budget", () => {
+    const stored = [msg("m1", "user", "short", 100)];
+    const result = buildSummaryTranscript(stored);
+    expect(result).toBe("Speaker: short");
+    expect(result).not.toContain("truncated");
+  });
+
+  it("handles an empty conversation", () => {
+    expect(buildSummaryTranscript([])).toBe("");
   });
 });

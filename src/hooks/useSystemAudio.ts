@@ -8,6 +8,7 @@ import {
   fetchAIResponse,
   isLikelyQuestion,
   buildAIHistory,
+  buildSummaryTranscript,
 } from "@/lib/functions";
 import { useSttStatus } from "./useSttStatus";
 import {
@@ -28,6 +29,9 @@ import { useContextSettings } from "./system-audio/useContextSettings";
 import { useCaptureKeyboardShortcuts } from "./system-audio/useCaptureKeyboardShortcuts";
 
 export type { VadConfig };
+
+/** Below this many captured utterances a session summary isn't worth the tokens. */
+const MIN_UTTERANCES_FOR_SUMMARY = 2;
 
 // Conversation/message shapes are the shared app types; re-exported here for
 // existing importers of this module.
@@ -124,6 +128,11 @@ export function useSystemAudio() {
   // Ref-backed so stopCapture (empty deps) always calls the freshest version,
   // which reads the current AI provider.
   const generateSummaryRef = useRef<() => void>(() => {});
+  // The summary streams independently of processWithAI, so it needs its own
+  // abort + sequence guard; without them a summary from a previous stop keeps
+  // streaming into the panel after the next capture begins.
+  const summaryAbortRef = useRef<AbortController | null>(null);
+  const summarySeqRef = useRef(0);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isSavingRef = useRef<boolean>(false);
   const capturedSampleRateRef = useRef<number>(16000);
@@ -682,22 +691,29 @@ export function useSystemAudio() {
   // AI provider is configured.
   const generateSessionSummary = useCallback(async () => {
     const messages = conversationMessagesRef.current;
-    if (messages.filter((m) => m.role === "user").length < 1) return;
+    // A single utterance summarizes to itself — not worth a model round-trip.
+    if (
+      messages.filter((m) => m.role === "user").length <
+      MIN_UTTERANCES_FOR_SUMMARY
+    ) {
+      return;
+    }
     if (!selectedAIProvider.provider) return;
     const provider = allAiProviders.find(
       (p) => p.id === selectedAIProvider.provider
     );
     if (!provider) return;
 
-    // State is newest-first; reverse for a chronological, attributed transcript.
-    const transcript = [...messages]
-      .reverse()
-      .map((m) => {
-        const who =
-          m.role === "assistant" ? "Assistant" : m.speaker || "Speaker";
-        return `${who}: ${m.content}`;
-      })
-      .join("\n");
+    // Supersede any summary still streaming from a previous stop, so its
+    // chunks can't interleave into this one's output.
+    summaryAbortRef.current?.abort();
+    const controller = new AbortController();
+    summaryAbortRef.current = controller;
+    const requestId = ++summarySeqRef.current;
+    const isCurrent = () =>
+      requestId === summarySeqRef.current && !controller.signal.aborted;
+
+    const transcript = buildSummaryTranscript(messages);
 
     const summaryPrompt =
       "You are summarizing a meeting or interview transcript. Produce a brief summary as short bullet points covering: (1) the key questions or topics raised — attribute to the speaker label when present; (2) the main points and answers; (3) any action items or follow-ups. Be concise; omit sections that don't apply.";
@@ -712,18 +728,26 @@ export function useSystemAudio() {
         history: [],
         userMessage: `Transcript:\n\n${transcript}`,
         imagesBase64: [],
+        signal: controller.signal,
       })) {
+        if (!isCurrent()) return;
         setSessionSummary((prev) => prev + chunk);
       }
     } catch (err) {
-      console.warn("Session summary failed:", err);
+      if (!controller.signal.aborted) {
+        console.warn("Session summary failed:", err);
+      }
     } finally {
-      setIsSummarizing(false);
+      if (isCurrent()) setIsSummarizing(false);
     }
   }, [selectedAIProvider, allAiProviders]);
   generateSummaryRef.current = generateSessionSummary;
 
   const dismissSummary = useCallback(() => {
+    // Dismissing mid-stream must stop it, or chunks keep arriving after.
+    summaryAbortRef.current?.abort();
+    summarySeqRef.current++;
+    setIsSummarizing(false);
     setSessionSummary("");
     setIsSummarizing(false);
   }, []);
@@ -881,6 +905,11 @@ export function useSystemAudio() {
       setRecordingProgress(0);
       setAudioLevel(0);
       setNoAudioDetected(false);
+      // Cancel a summary still streaming from the previous session: clearing
+      // the text isn't enough, its chunks would repopulate the panel. Bumping
+      // the sequence also invalidates it if the generator outlives the abort.
+      summaryAbortRef.current?.abort();
+      summarySeqRef.current++;
       setSessionSummary("");
       setIsSummarizing(false);
       utteranceTimestampsRef.current = [];
@@ -1065,6 +1094,7 @@ export function useSystemAudio() {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
+      summaryAbortRef.current?.abort();
       invoke("stop_system_audio_capture").catch(() => {});
     };
   }, []);
