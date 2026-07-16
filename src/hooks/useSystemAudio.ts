@@ -23,6 +23,7 @@ import { Message } from "@/types/completion";
 import { useVadConfig, type VadConfig } from "./system-audio/useVadConfig";
 import { useQuickActions } from "./system-audio/useQuickActions";
 import { useContextSettings } from "./system-audio/useContextSettings";
+import { useCaptureKeyboardShortcuts } from "./system-audio/useCaptureKeyboardShortcuts";
 
 export type { VadConfig };
 
@@ -101,7 +102,6 @@ export function useSystemAudio() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isSavingRef = useRef<boolean>(false);
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const streamingFinalizedRef = useRef<boolean>(false);
   const batchProcessedForCurrentUtteranceRef = useRef<boolean>(false);
@@ -852,67 +852,7 @@ export function useSystemAudio() {
     }
   }, [vadConfig.enabled, capturing]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isPopoverOpen) return;
-
-      const scrollElement = scrollAreaRef.current?.querySelector(
-        "[data-radix-scroll-area-viewport]"
-      ) as HTMLElement;
-
-      if (!scrollElement) return;
-
-      const scrollAmount = 100;
-
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        scrollElement.scrollBy({ top: scrollAmount, behavior: "smooth" });
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        scrollElement.scrollBy({ top: -scrollAmount, behavior: "smooth" });
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPopoverOpen]);
-
-  useEffect(() => {
-    const handleRecordingShortcuts = (e: KeyboardEvent) => {
-      if (!isPopoverOpen || !isContinuousMode) return;
-      if (isProcessing || isAIProcessing) return;
-
-      if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault();
-        if (!isRecordingInContinuousMode) {
-          startContinuousRecording();
-        } else {
-          manualStopAndSend();
-        }
-      }
-
-      if (e.key === "Escape" && isRecordingInContinuousMode) {
-        e.preventDefault();
-        ignoreContinuousRecording();
-      }
-
-      if (
-        e.key === " " &&
-        !isRecordingInContinuousMode &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !(e.target instanceof HTMLInputElement) &&
-        !(e.target instanceof HTMLTextAreaElement)
-      ) {
-        e.preventDefault();
-        startContinuousRecording();
-      }
-    };
-
-    window.addEventListener("keydown", handleRecordingShortcuts);
-    return () =>
-      window.removeEventListener("keydown", handleRecordingShortcuts);
-  }, [
+  const { scrollAreaRef } = useCaptureKeyboardShortcuts({
     isPopoverOpen,
     isContinuousMode,
     isRecordingInContinuousMode,
@@ -921,7 +861,7 @@ export function useSystemAudio() {
     startContinuousRecording,
     manualStopAndSend,
     ignoreContinuousRecording,
-  ]);
+  });
 
   return {
     capturing,
