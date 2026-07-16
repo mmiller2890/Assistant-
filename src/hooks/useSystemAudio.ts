@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useApp } from "@/contexts";
 import { fetchSTT, fetchAIResponse } from "@/lib/functions";
 import { useSttStatus } from "./useSttStatus";
-import { DEFAULT_SYSTEM_PROMPT, STORAGE_KEYS } from "@/config";
+import { STORAGE_KEYS } from "@/config";
 import {
   safeLocalStorage,
   generateConversationTitle,
@@ -22,6 +22,7 @@ import { TYPE_PROVIDER } from "@/types";
 import { Message } from "@/types/completion";
 import { useVadConfig, type VadConfig } from "./system-audio/useVadConfig";
 import { useQuickActions } from "./system-audio/useQuickActions";
+import { useContextSettings } from "./system-audio/useContextSettings";
 
 export type { VadConfig };
 
@@ -78,9 +79,6 @@ export function useSystemAudio() {
     updatedAt: 0,
   });
 
-  const [useSystemPrompt, setUseSystemPrompt] = useState<boolean>(true);
-  const [contextContent, setContextContent] = useState<string>("");
-
   const {
     selectedSttProvider,
     allSttProviders,
@@ -90,6 +88,14 @@ export function useSystemAudio() {
     selectedAudioDevices,
     onSetSelectedSttProvider,
   } = useApp();
+  const {
+    useSystemPrompt,
+    setUseSystemPrompt,
+    contextContent,
+    setContextContent,
+    getEffectiveSystemPrompt,
+    resetUseSystemPrompt,
+  } = useContextSettings(systemPrompt);
   const { isSupported, asrReady, isInitializing: isSttInitializing, init: initStt } =
     useSttStatus();
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -117,16 +123,10 @@ export function useSystemAudio() {
   const capturingRef = useRef(capturing);
   const selectedSttProviderRef = useRef(selectedSttProvider);
   const allSttProvidersRef = useRef(allSttProviders);
-  const useSystemPromptRef = useRef(useSystemPrompt);
-  const systemPromptRef = useRef(systemPrompt);
-  const contextContentRef = useRef(contextContent);
   const conversationMessagesRef = useRef(conversation.messages);
   capturingRef.current = capturing;
   selectedSttProviderRef.current = selectedSttProvider;
   allSttProvidersRef.current = allSttProviders;
-  useSystemPromptRef.current = useSystemPrompt;
-  systemPromptRef.current = systemPrompt;
-  contextContentRef.current = contextContent;
   conversationMessagesRef.current = conversation.messages;
 
   const openStreamingSocket = useCallback(() => {
@@ -174,9 +174,7 @@ export function useSystemAudio() {
             streamingFinalizedRef.current = true;
 
             if (!batchProcessedForCurrentUtteranceRef.current && data.text && data.text.trim()) {
-              const effectiveSystemPrompt = useSystemPromptRef.current
-                ? systemPromptRef.current || DEFAULT_SYSTEM_PROMPT
-                : contextContentRef.current || DEFAULT_SYSTEM_PROMPT;
+              const effectiveSystemPrompt = getEffectiveSystemPrompt();
               const previousMessages = conversationMessagesRef.current.map((msg) => ({
                 role: msg.role,
                 content: msg.content,
@@ -378,9 +376,7 @@ export function useSystemAudio() {
                 setLastTranscription(transcription);
                 setError("");
 
-                const effectiveSystemPrompt = useSystemPromptRef.current
-                  ? systemPromptRef.current || DEFAULT_SYSTEM_PROMPT
-                  : contextContentRef.current || DEFAULT_SYSTEM_PROMPT;
+                const effectiveSystemPrompt = getEffectiveSystemPrompt();
 
                 const previousMessages = conversationMessagesRef.current.map(
                   (msg) => {
@@ -430,46 +426,10 @@ export function useSystemAudio() {
     };
   }, [openStreamingSocket, closeStreamingSocket]);
 
-  const saveContextSettings = useCallback(
-    (usePrompt: boolean, content: string) => {
-      try {
-        const contextSettings = {
-          useSystemPrompt: usePrompt,
-          contextContent: content,
-        };
-        safeLocalStorage.setItem(
-          STORAGE_KEYS.SYSTEM_AUDIO_CONTEXT,
-          JSON.stringify(contextSettings)
-        );
-      } catch (error) {
-        console.error("Failed to save context settings:", error);
-      }
-    },
-    []
-  );
-
-  const updateUseSystemPrompt = useCallback(
-    (value: boolean) => {
-      setUseSystemPrompt(value);
-      saveContextSettings(value, contextContent);
-    },
-    [contextContent, saveContextSettings]
-  );
-
-  const updateContextContent = useCallback(
-    (content: string) => {
-      setContextContent(content);
-      saveContextSettings(useSystemPrompt, content);
-    },
-    [useSystemPrompt, saveContextSettings]
-  );
-
   const handleQuickActionClick = async (action: string) => {
     setError("");
 
-    const effectiveSystemPrompt = useSystemPrompt
-      ? systemPrompt || DEFAULT_SYSTEM_PROMPT
-      : contextContent || DEFAULT_SYSTEM_PROMPT;
+    const effectiveSystemPrompt = getEffectiveSystemPrompt();
 
     let updatedMessages = [...conversation.messages];
 
@@ -879,8 +839,8 @@ export function useSystemAudio() {
     setIsProcessing(false);
     setIsAIProcessing(false);
     setIsPopoverOpen(false);
-    setUseSystemPrompt(true);
-  }, []);
+    resetUseSystemPrompt();
+  }, [resetUseSystemPrompt]);
 
   useEffect(() => {
     if (capturing) {
@@ -983,9 +943,9 @@ export function useSystemAudio() {
     setConversation,
     processWithAI,
     useSystemPrompt,
-    setUseSystemPrompt: updateUseSystemPrompt,
+    setUseSystemPrompt,
     contextContent,
-    setContextContent: updateContextContent,
+    setContextContent,
     startNewConversation,
     resizeWindow,
     quickActions,
