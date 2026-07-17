@@ -3,6 +3,8 @@ use futures_util::Stream;
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
+pub mod mic;
+
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
