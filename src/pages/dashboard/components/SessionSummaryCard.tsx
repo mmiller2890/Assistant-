@@ -1,7 +1,7 @@
 import { Loader2, XIcon } from "lucide-react";
 import { Markdown } from "@/components";
 import {
-  LiveSessionCommandAction,
+  LiveSessionCommand,
   LiveSessionSnapshot,
 } from "@/lib/live-session";
 
@@ -11,7 +11,7 @@ export const SessionSummaryCard = ({
   sendCommand,
 }: {
   snapshot: LiveSessionSnapshot;
-  sendCommand: (action: LiveSessionCommandAction) => void;
+  sendCommand: (command: LiveSessionCommand) => void;
 }) => {
   if (!snapshot.sessionSummary && !snapshot.isSummarizing) {
     return null;
@@ -29,7 +29,7 @@ export const SessionSummaryCard = ({
             </span>
           )}
           <button
-            onClick={() => sendCommand("dismiss-summary")}
+            onClick={() => sendCommand({ action: "dismiss-summary" })}
             title="Dismiss summary"
             className="rounded p-0.5 text-meta transition-colors hover:bg-secondary hover:text-foreground"
           >

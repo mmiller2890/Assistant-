@@ -1,10 +1,12 @@
 import { useEffect, useState, useCallback } from "react";
 import { getAllConversations } from "@/lib";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { ChatConversation } from "@/types/completion";
+import { TOGGLE_WINDOW_VISIBILITY } from "@/lib/live-session";
 import { useLiveSession } from "@/hooks/useLiveSession";
-import { StatusLine } from "./components/StatusLine";
-import { CaptureControls } from "./components/CaptureControls";
+import { EmbeddedBar } from "./components/EmbeddedBar";
 import { TranscriptFeed } from "./components/TranscriptFeed";
 import { SessionMetrics } from "./components/SessionMetrics";
 import { RecentSessions } from "./components/RecentSessions";
@@ -48,6 +50,24 @@ const Dashboard = () => {
     };
   }, [load]);
 
+  // Overlay visibility drives the embedded bar's popped-in/out rendering.
+  const [overlayVisible, setOverlayVisible] = useState(false);
+  useEffect(() => {
+    invoke<boolean>("is_overlay_visible")
+      .then(setOverlayVisible)
+      .catch(() => {});
+    const un = listen<boolean>(TOGGLE_WINDOW_VISIBILITY, (e) => {
+      if (typeof e.payload === "boolean") setOverlayVisible(!e.payload);
+    });
+    return () => {
+      un.then((f) => f());
+    };
+  }, []);
+  const togglePopOut = () =>
+    invoke<boolean>("toggle_overlay")
+      .then(setOverlayVisible)
+      .catch(() => {});
+
   // Mirror-only: prefer the live conversation whenever the engine has one.
   const liveConversation =
     snapshot && snapshot.conversation.messages.length > 0
@@ -58,10 +78,12 @@ const Dashboard = () => {
 
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-background">
-      <StatusLine snapshot={snapshot} sendCommand={sendCommand} />
-      {snapshot?.capturing && (
-        <CaptureControls snapshot={snapshot} sendCommand={sendCommand} />
-      )}
+      <EmbeddedBar
+        snapshot={snapshot}
+        sendCommand={sendCommand}
+        overlayVisible={overlayVisible}
+        onTogglePopOut={togglePopOut}
+      />
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
         <div className="min-h-0 overflow-y-auto border-r border-border">
           <TranscriptFeed
@@ -74,9 +96,7 @@ const Dashboard = () => {
         <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-4">
           <SessionMetrics
             conversation={displayed}
-            liveStartedAt={
-              snapshot?.capturing ? snapshot.sessionStartedAt : null
-            }
+            liveStartedAt={snapshot?.capturing ? snapshot.sessionStartedAt : null}
           />
           {snapshot && (
             <SessionSummaryCard snapshot={snapshot} sendCommand={sendCommand} />
