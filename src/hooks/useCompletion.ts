@@ -17,10 +17,6 @@ import {
 } from "@/lib";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import {
-  LIVE_SESSION_COMMAND,
-  LiveSessionCommand,
-} from "@/lib/live-session";
 
 // Types for completion
 interface AttachedFile {
@@ -767,22 +763,6 @@ export const useCompletion = () => {
     state.response !== "" ||
     state.error !== null ||
     keepEngaged;
-
-  // Dashboard embedded-bar text input submits through this event (the bar lives
-  // in the other window and can't call submit() directly).
-  useEffect(() => {
-    const unlisten = listen<LiveSessionCommand>(
-      LIVE_SESSION_COMMAND,
-      (event) => {
-        if (event.payload?.action === "submit" && event.payload.text.trim()) {
-          submit(event.payload.text.trim());
-        }
-      }
-    );
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [submit]);
 
   useEffect(() => {
     resizeWindow(

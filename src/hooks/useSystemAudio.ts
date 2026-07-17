@@ -1281,7 +1281,28 @@ export function useSystemAudio() {
   // Dashboard commands dispatch to the engine's own functions through a
   // per-render ref (same stale-closure guard as processWithAIRef), so the
   // once-registered listener always calls the freshest closures.
-  // `submit` is handled in useCompletion (the text-input path), not here.
+  // Typed prompts from the dashboard's embedded bar join the SESSION
+  // conversation (not useCompletion's separate popover state), so the answer
+  // streams back into the snapshot and renders in the dashboard feed. Mirrors
+  // the streaming-transcript path, minus the question gate — a typed question
+  // is always answered.
+  const submitTypedPromptRef = useRef<(text: string) => void>(() => {});
+  submitTypedPromptRef.current = (text: string) => {
+    const messageId = appendUtteranceMessage(text);
+    lastUtteranceRef.current = { text, messageId };
+    const effectiveSystemPrompt = getEffectiveSystemPrompt();
+    const previousMessages = buildAIHistory(
+      conversationMessagesRef.current,
+      messageId
+    );
+    void processWithAIRef.current(
+      text,
+      effectiveSystemPrompt,
+      previousMessages,
+      messageId
+    );
+  };
+
   const liveCommandHandlersRef = useRef<
     Record<Exclude<LiveSessionCommandAction, "submit">, () => void>
   >(
@@ -1301,9 +1322,16 @@ export function useSystemAudio() {
     const unlisten = listen<LiveSessionCommand>(
       LIVE_SESSION_COMMAND,
       (event) => {
-        const action = event.payload?.action;
-        if (!action || action === "submit") return;
-        const handler = liveCommandHandlersRef.current[action];
+        const payload = event.payload;
+        if (!payload?.action) return;
+        if (payload.action === "submit") {
+          const text = payload.text?.trim();
+          if (text) {
+            submitTypedPromptRef.current(text);
+          }
+          return;
+        }
+        const handler = liveCommandHandlersRef.current[payload.action];
         if (handler) {
           handler();
         }
