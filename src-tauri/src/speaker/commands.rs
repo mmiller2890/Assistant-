@@ -1052,3 +1052,190 @@ mod tests {
         assert!(!silero_is_speech(true, 0.10));
     }
 }
+
+// ---- Mic dictation (native path for the mic button; macOS v1) ----
+// Own task slot: dictation and system-audio capture must never share one, so
+// neither can kill the other and both may run simultaneously.
+
+#[derive(Default)]
+pub struct MicDictationState {
+    task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    stop_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[tauri::command]
+pub async fn start_mic_dictation(
+    app: AppHandle,
+    device_id: Option<String>,
+) -> Result<(), String> {
+    let state = app.state::<MicDictationState>();
+    {
+        let guard = state
+            .task
+            .lock()
+            .map_err(|e| format!("Failed to acquire dictation lock: {e}"))?;
+        if guard.is_some() {
+            return Err("Dictation already running".to_string());
+        }
+    }
+
+    // Fail fast if Silero isn't available: dictation quality depends on it.
+    if get_silero_vad_probability(&app, &[0.0f32; 512]).is_none() {
+        return Err(
+            "Voice detection isn't ready — initialize speech recognition first".to_string(),
+        );
+    }
+
+    let input = crate::speaker::mic::MicInput::new(device_id)?;
+    let sr = input.sample_rate();
+    if !(8000..=96000).contains(&sr) {
+        return Err(format!("Invalid mic sample rate: {sr}"));
+    }
+    let (rx, stream_guard) = input.start()?;
+
+    let vad_config = app
+        .state::<crate::AudioState>()
+        .vad_config
+        .lock()
+        .map_err(|e| format!("Failed to read VAD config: {e}"))?
+        .clone();
+
+    state
+        .stop_flag
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    let stop_flag = state.stop_flag.clone();
+
+    let app_clone = app.clone();
+    let task = tokio::spawn(async move {
+        run_mic_dictation(app_clone.clone(), rx, sr, vad_config, stop_flag).await;
+        drop(stream_guard);
+        let _ = app_clone.emit("dictation-stopped", ());
+    });
+
+    *state
+        .task
+        .lock()
+        .map_err(|e| format!("Failed to store dictation task: {e}"))? = Some(task);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn stop_mic_dictation(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<MicDictationState>();
+    state
+        .stop_flag
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let task = state
+        .task
+        .lock()
+        .map_err(|e| format!("Failed to acquire dictation lock: {e}"))?
+        .take();
+    if let Some(task) = task {
+        let _ = tokio::time::timeout(tokio::time::Duration::from_secs(3), task).await;
+    }
+    Ok(())
+}
+
+async fn run_mic_dictation(
+    app: AppHandle,
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<Vec<f32>>,
+    sr: u32,
+    config: VadConfig,
+    stop_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    let hop = config.hop_size.max(256);
+    let mut pending: Vec<f32> = Vec::new();
+    let mut pre_speech: std::collections::VecDeque<Vec<f32>> =
+        std::collections::VecDeque::with_capacity(config.pre_speech_chunks);
+    let mut speech_buffer: Vec<f32> = Vec::new();
+    let mut in_speech = false;
+    let mut silence_hops = 0usize;
+    let mut speech_hops = 0usize;
+    // macOS assumes silence until the first Silero result (mirrors the tap loop).
+    let mut prob: Option<f32> = if cfg!(target_os = "macos") {
+        Some(0.0)
+    } else {
+        None
+    };
+
+    loop {
+        if stop_flag.load(std::sync::atomic::Ordering::SeqCst) {
+            break;
+        }
+        let chunk = match tokio::time::timeout(
+            tokio::time::Duration::from_millis(200),
+            rx.recv(),
+        )
+        .await
+        {
+            Ok(Some(c)) => c,
+            Ok(None) => break,  // stream thread ended
+            Err(_) => continue, // timeout: re-check stop flag
+        };
+        pending.extend_from_slice(&chunk);
+
+        while pending.len() >= hop {
+            let hop_chunk: Vec<f32> = pending.drain(..hop).collect();
+            let chunk_16k = resample_linear(&hop_chunk, sr as usize, SILERO_SAMPLE_RATE);
+            if let Some(p) = get_silero_vad_probability(&app, &chunk_16k) {
+                prob = Some(p);
+            }
+            let is_speech = match prob {
+                Some(p) => silero_is_speech(in_speech, p),
+                None => {
+                    // Threshold fallback (mirrors the tap loop's philosophy).
+                    let (rms, peak) = calculate_audio_metrics(&hop_chunk);
+                    rms > config.sensitivity_rms || peak > config.peak_threshold
+                }
+            };
+
+            if is_speech {
+                if !in_speech {
+                    in_speech = true;
+                    speech_hops = 0;
+                    speech_buffer.clear();
+                    for pre in pre_speech.iter() {
+                        speech_buffer.extend_from_slice(pre);
+                    }
+                }
+                silence_hops = 0;
+                speech_hops += 1;
+                speech_buffer.extend_from_slice(&hop_chunk);
+            } else if in_speech {
+                silence_hops += 1;
+                speech_buffer.extend_from_slice(&hop_chunk);
+                if silence_hops >= config.silence_chunks {
+                    in_speech = false;
+                    if speech_hops >= config.min_speech_chunks {
+                        emit_dictation_utterance(&app, sr, &speech_buffer, &config);
+                    }
+                    speech_buffer.clear();
+                }
+            } else {
+                pre_speech.push_back(hop_chunk);
+                while pre_speech.len() > config.pre_speech_chunks {
+                    pre_speech.pop_front();
+                }
+            }
+        }
+    }
+
+    // Flush a trailing utterance on stop.
+    if in_speech && speech_hops >= config.min_speech_chunks {
+        emit_dictation_utterance(&app, sr, &speech_buffer, &config);
+    }
+}
+
+fn emit_dictation_utterance(app: &AppHandle, sr: u32, samples: &[f32], config: &VadConfig) {
+    let cleaned = apply_noise_gate(samples, config.noise_gate_threshold);
+    let normalized = normalize_audio_level(&cleaned, 0.1);
+    if normalized.is_empty() {
+        return;
+    }
+    match samples_to_wav_b64(sr, &normalized) {
+        Ok(b64) => {
+            let _ = app.emit("dictation-detected", serde_json::json!({ "audio": b64 }));
+        }
+        Err(e) => error!("Failed to encode dictation utterance: {e}"),
+    }
+}
