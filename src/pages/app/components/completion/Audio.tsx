@@ -1,8 +1,17 @@
+import { lazy, Suspense } from "react";
 import { InfoIcon, MicIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger, Button } from "@/components";
-import { AutoSpeechVAD } from "./AutoSpeechVad";
 import { UseCompletionReturn } from "@/types";
 import { useApp } from "@/contexts";
+import { isMacOS } from "@/lib";
+import { MicDictationButton } from "./MicDictationButton";
+
+// Loaded only off-macOS: vad-react fetches its model/wasm from a CDN at
+// runtime, so it must never initialize on the platform with the native
+// dictation path.
+const AutoSpeechVAD = lazy(() =>
+  import("./AutoSpeechVad").then((m) => ({ default: m.AutoSpeechVAD }))
+);
 
 export const Audio = ({
   micOpen,
@@ -17,6 +26,31 @@ export const Audio = ({
 
   const speechProviderStatus = selectedSttProvider.provider;
   const configured = Boolean(localApiEnabled || speechProviderStatus);
+
+  // Configured + armed: render the actual voice-input control. It is NOT the
+  // popover trigger — the warning popover only exists for the unconfigured
+  // state, and Radix's asChild cannot wrap a Suspense boundary anyway.
+  if (configured && enableVAD) {
+    return isMacOS() ? (
+      <MicDictationButton submit={submit} setState={setState} />
+    ) : (
+      <Suspense
+        fallback={
+          <Button size="icon" title="Loading voice input…">
+            <MicIcon className="h-4 w-4 text-muted-foreground" />
+          </Button>
+        }
+      >
+        <AutoSpeechVAD
+          key={selectedAudioDevices.input.id}
+          submit={submit}
+          setState={setState}
+          setEnableVAD={setEnableVAD}
+          microphoneDeviceId={selectedAudioDevices.input.id}
+        />
+      </Suspense>
+    );
+  }
 
   return (
     // The popover exists only to explain missing provider config. When
@@ -33,26 +67,16 @@ export const Audio = ({
       }}
     >
       <PopoverTrigger asChild>
-        {(localApiEnabled || speechProviderStatus) && enableVAD ? (
-          <AutoSpeechVAD
-            key={selectedAudioDevices.input.id}
-            submit={submit}
-            setState={setState}
-            setEnableVAD={setEnableVAD}
-            microphoneDeviceId={selectedAudioDevices.input.id}
-          />
-        ) : (
-          <Button
-            size="icon"
-            onClick={() => {
-              setEnableVAD(!enableVAD);
-            }}
-            className="cursor-pointer"
-            title="Toggle voice input"
-          >
-            <MicIcon className="h-4 w-4" />
-          </Button>
-        )}
+        <Button
+          size="icon"
+          onClick={() => {
+            setEnableVAD(!enableVAD);
+          }}
+          className="cursor-pointer"
+          title="Toggle voice input"
+        >
+          <MicIcon className="h-4 w-4" />
+        </Button>
       </PopoverTrigger>
 
       <PopoverContent align="end" side="bottom" className="w-80 p-3" sideOffset={8}>
