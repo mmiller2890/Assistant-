@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useWindowResize, useGlobalShortcuts } from ".";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -24,6 +24,14 @@ import { ChatConversation, Message } from "@/types/completion";
 import { useSpeakerLabels } from "./system-audio/useSpeakerLabels";
 import { useSttStreamSocket } from "./system-audio/useSttStreamSocket";
 import { useVadConfig, type VadConfig } from "./system-audio/useVadConfig";
+import { useLiveStatePublisher } from "./system-audio/useLiveStatePublisher";
+import {
+  LIVE_SESSION_COMMAND,
+  LIVE_SNAPSHOT_MAX_MESSAGES,
+  LiveSessionCommand,
+  LiveSessionCommandAction,
+  LiveSessionSnapshot,
+} from "@/lib/live-session";
 import { useQuickActions } from "./system-audio/useQuickActions";
 import { useContextSettings } from "./system-audio/useContextSettings";
 import { useCaptureKeyboardShortcuts } from "./system-audio/useCaptureKeyboardShortcuts";
@@ -73,6 +81,9 @@ export function useSystemAudio() {
   const [isContinuousMode, setIsContinuousMode] = useState<boolean>(false);
   const [isRecordingInContinuousMode, setIsRecordingInContinuousMode] =
     useState<boolean>(false);
+  // Wall-clock start of the running capture session; drives the dashboard's
+  // live timer (computed locally there — no per-second events).
+  const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
 
   const [conversation, setConversation] = useState<ChatConversation>({
     id: "",
@@ -900,6 +911,7 @@ export function useSystemAudio() {
 
       setCapturing(true);
       capturingRef.current = true;
+      setSessionStartedAt(Date.now());
       setIsPopoverOpen(true);
       setIsContinuousMode(isContinuous);
       setRecordingProgress(0);
@@ -992,6 +1004,7 @@ export function useSystemAudio() {
       generateSummaryRef.current();
 
       setCapturing(false);
+      setSessionStartedAt(null);
       setIsProcessing(false);
       setIsAIProcessing(false);
       setIsContinuousMode(false);
@@ -1209,6 +1222,94 @@ export function useSystemAudio() {
     })();
   }, [vadConfig, capturing, selectedAudioDevices.output.id]);
 
+  // ---- Cross-window live session mirror (sub-project ④) ----
+  // The dashboard renders this snapshot and drives the engine via commands;
+  // it never derives state on its own (mirror-only discipline).
+  const liveSnapshot = useMemo<LiveSessionSnapshot>(
+    () => ({
+      capturing,
+      isContinuousMode,
+      isRecordingInContinuousMode,
+      isProcessing,
+      isAIProcessing,
+      error,
+      setupRequired,
+      partialTranscription,
+      isStreaming,
+      lastAIResponse,
+      conversation:
+        conversation.messages.length > LIVE_SNAPSHOT_MAX_MESSAGES
+          ? {
+              ...conversation,
+              messages: conversation.messages.slice(
+                0,
+                LIVE_SNAPSHOT_MAX_MESSAGES
+              ),
+            }
+          : conversation,
+      sessionStartedAt,
+      currentSpeaker,
+      isLabelingSpeakers,
+      sessionSummary,
+      isSummarizing,
+      audioLevel,
+      noAudioDetected,
+    }),
+    [
+      capturing,
+      isContinuousMode,
+      isRecordingInContinuousMode,
+      isProcessing,
+      isAIProcessing,
+      error,
+      setupRequired,
+      partialTranscription,
+      isStreaming,
+      lastAIResponse,
+      conversation,
+      sessionStartedAt,
+      currentSpeaker,
+      isLabelingSpeakers,
+      sessionSummary,
+      isSummarizing,
+      audioLevel,
+      noAudioDetected,
+    ]
+  );
+  useLiveStatePublisher(liveSnapshot);
+
+  // Dashboard commands dispatch to the engine's own functions through a
+  // per-render ref (same stale-closure guard as processWithAIRef), so the
+  // once-registered listener always calls the freshest closures.
+  const liveCommandHandlersRef = useRef<
+    Record<LiveSessionCommandAction, () => void>
+  >({} as Record<LiveSessionCommandAction, () => void>);
+  liveCommandHandlersRef.current = {
+    "start-capture": () => void startCapture(),
+    "stop-capture": () => void stopCapture(),
+    "start-recording": () => void startContinuousRecording(),
+    "stop-and-send": () => void manualStopAndSend(),
+    "ignore-recording": () => void ignoreContinuousRecording(),
+    "answer-last": () => void answerLastUtterance(),
+    "new-conversation": () => startNewConversation(),
+    "dismiss-summary": () => dismissSummary(),
+  };
+  useEffect(() => {
+    const unlisten = listen<LiveSessionCommand>(
+      LIVE_SESSION_COMMAND,
+      (event) => {
+        const action = event.payload?.action;
+        const handler = action && liveCommandHandlersRef.current[action];
+        if (handler) {
+          handler();
+        }
+      }
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
   const { scrollAreaRef } = useCaptureKeyboardShortcuts({
     isPopoverOpen,
     isContinuousMode,
@@ -1259,6 +1360,7 @@ export function useSystemAudio() {
     isContinuousMode,
     isRecordingInContinuousMode,
     recordingProgress,
+    sessionStartedAt,
     audioLevel,
     noAudioDetected,
     sessionSummary,
