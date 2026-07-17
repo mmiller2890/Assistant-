@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { ChatConversation } from "@/types/completion";
 import { Markdown } from "@/components";
 
@@ -10,20 +11,44 @@ const formatClock = (ts: number): string =>
 
 export const TranscriptFeed = ({
   conversation,
+  live = false,
+  partialTranscription = "",
+  isAIProcessing = false,
 }: {
   conversation: ChatConversation | null;
+  live?: boolean;
+  partialTranscription?: string;
+  isAIProcessing?: boolean;
 }) => {
-  const turns = conversation?.messages.filter((m) => m.role !== "system") ?? [];
+  // Live conversation state is newest-first; DB reads are chronological.
+  // Sort by timestamp so both render oldest → newest.
+  const turns = [...(conversation?.messages ?? [])]
+    .filter((m) => m.role !== "system")
+    .sort((a, b) => a.timestamp - b.timestamp);
 
-  if (turns.length === 0) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const lastContent = turns[turns.length - 1]?.content;
+  useEffect(() => {
+    if (live) {
+      bottomRef.current?.scrollIntoView({ block: "end" });
+    }
+  }, [live, turns.length, lastContent, partialTranscription]);
+
+  if (turns.length === 0 && !partialTranscription) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-center">
         <span className="font-mono text-xs text-meta">
-          no session yet · start capture from the overlay
+          {live
+            ? "listening · say something"
+            : "no session yet · press start capture"}
         </span>
       </div>
     );
   }
+
+  const lastAssistantId = [...turns]
+    .reverse()
+    .find((m) => m.role === "assistant")?.id;
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -39,18 +64,35 @@ export const TranscriptFeed = ({
               </div>
               <div className="prose prose-sm max-w-none text-sm dark:prose-invert">
                 <Markdown>{m.content}</Markdown>
+                {live && isAIProcessing && m.id === lastAssistantId && (
+                  <span className="ml-1 inline-block h-4 w-2 animate-pulse bg-primary align-middle" />
+                )}
               </div>
             </div>
           ) : (
             <div className="min-w-0 flex-1">
               <div className="mb-1 font-mono text-[11px] text-muted-foreground">
-                heard
+                {(m.speaker || "heard").toLowerCase()}
               </div>
               <div className="text-sm leading-relaxed">{m.content}</div>
             </div>
           )}
         </div>
       ))}
+      {live && partialTranscription && (
+        <div className="flex gap-3">
+          <span className="min-w-[40px] pt-0.5 font-mono text-[11px] text-meta">
+            …
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 font-mono text-[11px] text-meta">hearing</div>
+            <div className="text-sm italic leading-relaxed text-muted-foreground">
+              {partialTranscription}
+            </div>
+          </div>
+        </div>
+      )}
+      <div ref={bottomRef} />
     </div>
   );
 };

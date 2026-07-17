@@ -18,17 +18,26 @@ const formatDate = (ts: number): string =>
 
 export const SessionMetrics = ({
   conversation,
+  liveStartedAt = null,
 }: {
   conversation: ChatConversation | null;
+  /** When capturing: session start (ms epoch); duration runs from here. */
+  liveStartedAt?: number | null;
 }) => {
   const questions =
     conversation?.messages.filter((m) => m.role === "user").length ?? 0;
   const answers =
     conversation?.messages.filter((m) => m.role === "assistant").length ?? 0;
-  const duration = conversation
-    ? formatDuration(conversation.updatedAt - conversation.createdAt)
-    : "—";
-  const date = conversation ? formatDate(conversation.createdAt) : "";
+  const duration = liveStartedAt
+    ? formatDuration(Date.now() - liveStartedAt)
+    : conversation
+      ? formatDuration(conversation.updatedAt - conversation.createdAt)
+      : "—";
+  const date = liveStartedAt
+    ? "live"
+    : conversation
+      ? formatDate(conversation.createdAt)
+      : "";
 
   const Tile = ({ n, label }: { n: string; label: string }) => (
     <div className="rounded-lg border border-border bg-card px-3 py-2">
@@ -44,8 +53,14 @@ export const SessionMetrics = ({
         <span>{conversation ? `${date} · ${duration}` : ""}</span>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <Tile n={conversation ? String(questions) : "—"} label="questions" />
-        <Tile n={conversation ? String(answers) : "—"} label="answers" />
+        <Tile
+          n={conversation || liveStartedAt ? String(questions) : "—"}
+          label="questions"
+        />
+        <Tile
+          n={conversation || liveStartedAt ? String(answers) : "—"}
+          label="answers"
+        />
       </div>
     </div>
   );
