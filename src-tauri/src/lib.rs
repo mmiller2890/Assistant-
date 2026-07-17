@@ -115,22 +115,12 @@ pub fn run() {
                     eprintln!("Failed to pre-create dashboard window on startup: {}", e);
                 }
             }
-
-            // Dashboard-primary launch: the dashboard is the focused primary
-            // window; the overlay starts hidden and is summoned on demand
-            // (⌘\ or the dashboard pop-out button). Runs after setup_main_window
-            // + init() so the overlay is fully realized and its capture engine
-            // has mounted before we hide it.
-            if let Some(dashboard) = app_handle.get_webview_window("dashboard") {
-                let _ = dashboard.show();
-                let _ = dashboard.set_focus();
-            }
-            if let Some(main) = app_handle.get_webview_window("main") {
-                let _ = main.hide();
-                let state = app_handle.state::<shortcuts::WindowVisibility>();
-                let mut is_hidden = state.is_hidden.lock().unwrap();
-                *is_hidden = true;
-            }
+            // NOTE: the dashboard-primary launch flip (hide overlay + focus
+            // dashboard) was reverted — it fought this app's overlay-first
+            // foundation (non-activating NSPanel), leaving the app with no
+            // foreground activation. The overlay is visible on launch again
+            // (tauri.conf visible:true); the dashboard opens on ⌘⇧D. A proper
+            // embedded-bar model replaces this later.
 
             #[cfg(desktop)]
             {
