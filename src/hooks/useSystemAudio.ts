@@ -1281,9 +1281,12 @@ export function useSystemAudio() {
   // Dashboard commands dispatch to the engine's own functions through a
   // per-render ref (same stale-closure guard as processWithAIRef), so the
   // once-registered listener always calls the freshest closures.
+  // `submit` is handled in useCompletion (the text-input path), not here.
   const liveCommandHandlersRef = useRef<
-    Record<LiveSessionCommandAction, () => void>
-  >({} as Record<LiveSessionCommandAction, () => void>);
+    Record<Exclude<LiveSessionCommandAction, "submit">, () => void>
+  >(
+    {} as Record<Exclude<LiveSessionCommandAction, "submit">, () => void>
+  );
   liveCommandHandlersRef.current = {
     "start-capture": () => void startCapture(),
     "stop-capture": () => void stopCapture(),
@@ -1299,7 +1302,8 @@ export function useSystemAudio() {
       LIVE_SESSION_COMMAND,
       (event) => {
         const action = event.payload?.action;
-        const handler = action && liveCommandHandlersRef.current[action];
+        if (!action || action === "submit") return;
+        const handler = liveCommandHandlersRef.current[action];
         if (handler) {
           handler();
         }

@@ -203,6 +203,20 @@ fn setup_dashboard_close_handler<R: Runtime>(window: &WebviewWindow<R>) {
 }
 
 /// Shows the dashboard window and brings it to focus
+/// Force the app to the foreground. The main window is a non-activating
+/// NSPanel, so showing/focusing the dashboard alone does not make the app the
+/// active application (no menu bar, window can stay behind). Activating the
+/// NSApplication explicitly is what a normal windowed app needs.
+#[cfg(target_os = "macos")]
+pub fn activate_app() {
+    use tauri_nspanel::cocoa::appkit::NSApplication;
+    use tauri_nspanel::cocoa::base::{nil, YES};
+    unsafe {
+        let ns_app = NSApplication::sharedApplication(nil);
+        ns_app.activateIgnoringOtherApps_(YES);
+    }
+}
+
 pub fn show_dashboard_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     if let Some(dashboard_window) = app.get_webview_window("dashboard") {
         // Window exists, show and focus it
@@ -223,5 +237,7 @@ pub fn show_dashboard_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), Strin
             .set_focus()
             .map_err(|e| format!("Failed to focus new dashboard window: {}", e))?;
     }
+    #[cfg(target_os = "macos")]
+    activate_app();
     Ok(())
 }

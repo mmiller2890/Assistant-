@@ -4,7 +4,7 @@ import {
   LIVE_SESSION_COMMAND,
   LIVE_SESSION_REQUEST,
   LIVE_SESSION_STATE,
-  LiveSessionCommandAction,
+  LiveSessionCommand,
   LiveSessionSnapshot,
 } from "@/lib/live-session";
 
@@ -31,8 +31,8 @@ export function useLiveSession() {
     };
   }, []);
 
-  const sendCommand = useCallback((action: LiveSessionCommandAction) => {
-    emit(LIVE_SESSION_COMMAND, { action }).catch((e) =>
+  const sendCommand = useCallback((command: LiveSessionCommand) => {
+    emit(LIVE_SESSION_COMMAND, command).catch((e) =>
       console.error("Failed to send live-session command:", e)
     );
   }, []);

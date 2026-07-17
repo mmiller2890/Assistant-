@@ -56,11 +56,13 @@ export type LiveSessionCommandAction =
   | "ignore-recording"
   | "answer-last"
   | "new-conversation"
-  | "dismiss-summary";
+  | "dismiss-summary"
+  | "submit";
 
-export interface LiveSessionCommand {
-  action: LiveSessionCommandAction;
-}
+/** `submit` carries the typed prompt; every other action is a bare verb. */
+export type LiveSessionCommand =
+  | { action: Exclude<LiveSessionCommandAction, "submit"> }
+  | { action: "submit"; text: string };
 
 /**
  * The one status ladder for rendering session state (word + slate classes).

@@ -285,7 +285,14 @@ fn overlay_effectively_visible(app: &AppHandle) -> bool {
 #[tauri::command]
 pub fn toggle_overlay(app: AppHandle) -> bool {
     handle_toggle_window(&app);
-    overlay_effectively_visible(&app)
+    let visible = overlay_effectively_visible(&app);
+    // Popping the bar back IN hides the overlay; make sure the dashboard
+    // becomes the foreground window (menu bar, focus) instead of leaving the
+    // app un-activated behind other windows.
+    if !visible {
+        let _ = crate::window::show_dashboard_window(&app);
+    }
+    visible
 }
 
 /// Query the overlay's current visibility (dashboard button initial state).
