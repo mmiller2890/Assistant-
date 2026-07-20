@@ -1,0 +1,78 @@
+name: CI
+
+# Guards the shared dev branch: runs the same gates used before every local
+# commit (tsc, vitest, frontend build, cargo check). Does NOT build or publish
+# any release — that stays workflow_dispatch-only in publish.yml.
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev, main]
+
+# A newer push to the same ref supersedes an in-flight run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Platform-independent gates — cheap and fast on ubuntu.
+  frontend:
+    name: tsc · vitest · build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Build frontend
+        run: npm run build
+
+  # cargo check on macOS so the macOS-only Rust (#[cfg(target_os = "macos")]:
+  # NSPanel, foregrounding, screen capture) is actually compiled. ubuntu would
+  # skip it. This is the app's primary target.
+  rust:
+    name: cargo check (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend deps
+        run: npm ci
+
+      # Produces ../dist, which tauri-build needs for `cargo check`.
+      - name: Build frontend
+        run: npm run build
+
+      - name: Cargo check
+        working-directory: src-tauri
+        run: cargo check
