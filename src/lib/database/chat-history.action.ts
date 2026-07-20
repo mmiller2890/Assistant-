@@ -1,44 +1,15 @@
 import { getDatabase } from "./config";
 import { ChatConversation } from "@/types";
 import { safeLocalStorage } from "@/lib";
+import {
+  DbConversation,
+  DbMessage,
+  rowsToConversations,
+  safeJsonParse,
+} from "./chat-history.map";
 
 // Legacy localStorage key for migration purposes
 const LEGACY_CHAT_HISTORY_KEY = "chat_history";
-
-/**
- * Database conversation type (flattened for SQL)
- */
-interface DbConversation {
-  id: string;
-  title: string;
-  created_at: number;
-  updated_at: number;
-}
-
-/**
- * Database message type (flattened for SQL)
- */
-interface DbMessage {
-  id: string;
-  conversation_id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  timestamp: number;
-  attached_files: string | null; // JSON string
-}
-
-/**
- * Safely parse JSON with error handling
- */
-function safeJsonParse<T>(jsonString: string | null, fallback: T): T {
-  if (!jsonString) return fallback;
-  try {
-    return JSON.parse(jsonString) as T;
-  } catch (error) {
-    console.error("Failed to parse JSON:", error);
-    return fallback;
-  }
-}
 
 /**
  * Validate conversation data
@@ -145,55 +116,71 @@ export async function createConversation(
 }
 
 /**
- * Get all conversations with messages in a single optimized query
+ * Default number of recent conversations the dashboard loads on focus. Covers
+ * RecentSessions' 6-item list plus the fallback displayed session, with buffer,
+ * without scanning the full history on every window focus.
+ */
+export const DEFAULT_RECENT_CONVERSATIONS_LIMIT = 15;
+
+type Db = Awaited<ReturnType<typeof getDatabase>>;
+
+/**
+ * Fetch the messages for a set of conversation rows (one query) and assemble
+ * them into `ChatConversation`s. Bounded by whatever conversation set is passed.
+ */
+async function assembleConversations(
+  db: Db,
+  conversations: DbConversation[]
+): Promise<ChatConversation[]> {
+  if (conversations.length === 0) {
+    return [];
+  }
+  const conversationIds = conversations.map((c) => c.id);
+  const placeholders = conversationIds.map(() => "?").join(",");
+  const allMessages = await db.select<DbMessage[]>(
+    `SELECT * FROM messages WHERE conversation_id IN (${placeholders}) ORDER BY conversation_id, timestamp ASC`,
+    conversationIds
+  );
+  return rowsToConversations(conversations, allMessages);
+}
+
+/**
+ * Get all conversations with messages. Scans the entire history — use only
+ * where that is intended (e.g. the full Chats page). For the dashboard, prefer
+ * `getRecentConversations`.
  */
 export async function getAllConversations(): Promise<ChatConversation[]> {
   const db = await getDatabase();
 
   try {
-    // Get all conversations
     const conversations = await db.select<DbConversation[]>(
       "SELECT * FROM conversations ORDER BY updated_at DESC"
     );
-
-    if (conversations.length === 0) {
-      return [];
-    }
-
-    // Get all messages for these conversations in one query
-    const conversationIds = conversations.map((c) => c.id);
-    const placeholders = conversationIds.map(() => "?").join(",");
-    const allMessages = await db.select<DbMessage[]>(
-      `SELECT * FROM messages WHERE conversation_id IN (${placeholders}) ORDER BY conversation_id, timestamp ASC`,
-      conversationIds
-    );
-
-    // Group messages by conversation_id
-    const messagesByConversation = new Map<string, DbMessage[]>();
-    for (const msg of allMessages) {
-      if (!messagesByConversation.has(msg.conversation_id)) {
-        messagesByConversation.set(msg.conversation_id, []);
-      }
-      messagesByConversation.get(msg.conversation_id)!.push(msg);
-    }
-
-    // Build result
-    return conversations.map((conv) => ({
-      id: conv.id,
-      title: conv.title,
-      createdAt: conv.created_at,
-      updatedAt: conv.updated_at,
-      messages:
-        messagesByConversation.get(conv.id)?.map((msg) => ({
-          id: msg.id,
-          role: msg.role,
-          content: msg.content,
-          timestamp: msg.timestamp,
-          attachedFiles: safeJsonParse(msg.attached_files, undefined),
-        })) || [],
-    }));
+    return await assembleConversations(db, conversations);
   } catch (error) {
     console.error("Failed to get all conversations:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get the most-recently-updated conversations (with messages), bounded by
+ * `limit`. This is what the dashboard loads on focus so a large history doesn't
+ * make every window focus reload the whole database.
+ */
+export async function getRecentConversations(
+  limit = DEFAULT_RECENT_CONVERSATIONS_LIMIT
+): Promise<ChatConversation[]> {
+  const db = await getDatabase();
+
+  try {
+    const conversations = await db.select<DbConversation[]>(
+      "SELECT * FROM conversations ORDER BY updated_at DESC LIMIT ?",
+      [limit]
+    );
+    return await assembleConversations(db, conversations);
+  } catch (error) {
+    console.error("Failed to get recent conversations:", error);
     throw error;
   }
 }

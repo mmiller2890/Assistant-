@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { getAllConversations } from "@/lib";
+import { getRecentConversations } from "@/lib";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -21,8 +21,8 @@ const Dashboard = () => {
 
   const load = useCallback(async () => {
     try {
-      const all = await getAllConversations();
-      setConversations(all);
+      const recent = await getRecentConversations();
+      setConversations(recent);
     } catch (error) {
       console.error("Failed to load conversations for dashboard:", error);
       setConversations([]);
