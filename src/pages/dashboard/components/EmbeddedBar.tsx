@@ -9,11 +9,14 @@ import {
   PictureInPicture2,
   SparklesIcon,
   RotateCcwIcon,
+  ShieldAlertIcon,
+  TriangleAlertIcon,
 } from "lucide-react";
 import {
   LiveSessionSnapshot,
   LiveSessionCommand,
   deriveSessionStatus,
+  deriveBarNotice,
 } from "@/lib/live-session";
 
 const formatElapsed = (startedAt: number, now: number): string => {
@@ -55,6 +58,8 @@ export const EmbeddedBar = ({
     setText("");
   };
 
+  const notice = deriveBarNotice(snapshot);
+
   return (
     <div
       data-tauri-drag-region
@@ -80,6 +85,28 @@ export const EmbeddedBar = ({
           {selectedSttProvider.provider || "no stt"}
         </span>
       </div>
+
+      {!overlayVisible &&
+        notice &&
+        (notice.kind === "setup" ? (
+          <div className="flex items-center gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 font-mono text-[11px] text-warn">
+            <ShieldAlertIcon className="size-3.5 shrink-0" />
+            <span className="min-w-0 flex-1">{notice.message}</span>
+            <button
+              onClick={() => sendCommand({ action: "setup" })}
+              className="shrink-0 rounded border border-warn/50 px-2 py-0.5 uppercase tracking-wide transition-colors hover:bg-warn/20"
+            >
+              grant permission
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 font-mono text-[11px] text-destructive">
+            <TriangleAlertIcon className="size-3.5 shrink-0" />
+            <span className="min-w-0 flex-1 truncate" title={notice.message}>
+              {notice.message}
+            </span>
+          </div>
+        ))}
 
       {overlayVisible ? (
         <div className="flex h-9 items-center justify-between rounded-md border border-border bg-secondary px-3 font-mono text-xs text-meta">

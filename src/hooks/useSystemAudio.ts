@@ -1317,6 +1317,9 @@ export function useSystemAudio() {
     "answer-last": () => void answerLastUtterance(),
     "new-conversation": () => startNewConversation(),
     "dismiss-summary": () => dismissSummary(),
+    // Dashboard bar's "grant permission" action → same permission-request +
+    // retry-capture path the overlay uses, keeping that logic in the engine.
+    setup: () => void handleSetup(),
   };
   useEffect(() => {
     const unlisten = listen<LiveSessionCommand>(

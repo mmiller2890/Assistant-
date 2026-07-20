@@ -57,6 +57,7 @@ export type LiveSessionCommandAction =
   | "answer-last"
   | "new-conversation"
   | "dismiss-summary"
+  | "setup"
   | "submit";
 
 /** `submit` carries the typed prompt; every other action is a bare verb. */
@@ -101,4 +102,31 @@ export function deriveSessionStatus(snapshot: LiveSessionSnapshot | null): {
     };
   }
   return { word: "idle", cls: "text-meta", dot: "bg-meta" };
+}
+
+/** An actionable notice the embedded bar surfaces above its controls. */
+export type BarNotice =
+  | { kind: "setup"; message: string }
+  | { kind: "error"; message: string }
+  | null;
+
+/**
+ * Turns the snapshot's `setupRequired`/`error` into a bar notice. A missing
+ * screen/audio permission (`setupRequired`) takes precedence over a generic
+ * error, mirroring the `error && !setupRequired` rule in `deriveSessionStatus`
+ * and the overlay's StatusIndicator. Without this the dashboard bar renders
+ * neither field and goes silent when capture can't start.
+ */
+export function deriveBarNotice(snapshot: LiveSessionSnapshot | null): BarNotice {
+  if (!snapshot) return null;
+  if (snapshot.setupRequired) {
+    return {
+      kind: "setup",
+      message: "Screen & system audio recording permission needed",
+    };
+  }
+  if (snapshot.error) {
+    return { kind: "error", message: snapshot.error };
+  }
+  return null;
 }
