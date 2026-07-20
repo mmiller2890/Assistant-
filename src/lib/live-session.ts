@@ -35,6 +35,7 @@ export interface LiveSessionSnapshot {
   isAIProcessing: boolean;
   error: string;
   setupRequired: boolean;
+  isSttInitializing: boolean;
   partialTranscription: string;
   isStreaming: boolean;
   lastAIResponse: string;
@@ -104,18 +105,21 @@ export function deriveSessionStatus(snapshot: LiveSessionSnapshot | null): {
   return { word: "idle", cls: "text-meta", dot: "bg-meta" };
 }
 
-/** An actionable notice the embedded bar surfaces above its controls. */
+/** A notice the embedded bar surfaces above its controls. */
 export type BarNotice =
   | { kind: "setup"; message: string }
   | { kind: "error"; message: string }
+  | { kind: "init"; message: string }
   | null;
 
 /**
- * Turns the snapshot's `setupRequired`/`error` into a bar notice. A missing
- * screen/audio permission (`setupRequired`) takes precedence over a generic
- * error, mirroring the `error && !setupRequired` rule in `deriveSessionStatus`
- * and the overlay's StatusIndicator. Without this the dashboard bar renders
- * neither field and goes silent when capture can't start.
+ * Turns the snapshot's `setupRequired`/`error`/`isSttInitializing` into a bar
+ * notice, in priority order: a missing screen/audio permission (`setupRequired`)
+ * outranks a generic error, which outranks the transient "preparing speech
+ * models" state. The setup>error rule mirrors `error && !setupRequired` in
+ * `deriveSessionStatus` and the overlay's StatusIndicator. Without this the
+ * dashboard bar renders none of these and goes silent when capture can't start
+ * or while models load.
  */
 export function deriveBarNotice(snapshot: LiveSessionSnapshot | null): BarNotice {
   if (!snapshot) return null;
@@ -127,6 +131,12 @@ export function deriveBarNotice(snapshot: LiveSessionSnapshot | null): BarNotice
   }
   if (snapshot.error) {
     return { kind: "error", message: snapshot.error };
+  }
+  if (snapshot.isSttInitializing) {
+    return {
+      kind: "init",
+      message: "Preparing local speech models — first run may take 20–50s",
+    };
   }
   return null;
 }

@@ -11,6 +11,7 @@ import {
   RotateCcwIcon,
   ShieldAlertIcon,
   TriangleAlertIcon,
+  LoaderIcon,
 } from "lucide-react";
 import {
   LiveSessionSnapshot,
@@ -29,11 +30,13 @@ export const EmbeddedBar = ({
   sendCommand,
   overlayVisible,
   onTogglePopOut,
+  onOpenProviders,
 }: {
   snapshot: LiveSessionSnapshot | null;
   sendCommand: (command: LiveSessionCommand) => void;
   overlayVisible: boolean;
   onTogglePopOut: () => void;
+  onOpenProviders: () => void;
 }) => {
   const { selectedAIProvider, selectedSttProvider } = useApp();
   const status = deriveSessionStatus(snapshot);
@@ -80,10 +83,15 @@ export const EmbeddedBar = ({
             </span>
           ) : null}
         </span>
-        <span className="text-meta">
+        <button
+          type="button"
+          onClick={onOpenProviders}
+          title="Configure providers"
+          className="pointer-events-auto text-meta transition-colors hover:text-foreground"
+        >
           {selectedAIProvider.provider || "no model"} ·{" "}
           {selectedSttProvider.provider || "no stt"}
-        </span>
+        </button>
       </div>
 
       {!overlayVisible &&
@@ -98,6 +106,11 @@ export const EmbeddedBar = ({
             >
               grant permission
             </button>
+          </div>
+        ) : notice.kind === "init" ? (
+          <div className="flex items-center gap-2 rounded-md border border-border bg-secondary px-3 py-2 font-mono text-[11px] text-muted-foreground">
+            <LoaderIcon className="size-3.5 shrink-0 animate-spin text-primary" />
+            <span className="min-w-0 flex-1">{notice.message}</span>
           </div>
         ) : (
           <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 font-mono text-[11px] text-destructive">

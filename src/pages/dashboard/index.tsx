@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { getAllConversations } from "@/lib";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
@@ -16,6 +17,7 @@ import { ProviderStatus } from "./components/ProviderStatus";
 const Dashboard = () => {
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const { snapshot, sendCommand } = useLiveSession();
+  const navigate = useNavigate();
 
   const load = useCallback(async () => {
     try {
@@ -83,6 +85,7 @@ const Dashboard = () => {
         sendCommand={sendCommand}
         overlayVisible={overlayVisible}
         onTogglePopOut={togglePopOut}
+        onOpenProviders={() => navigate("/dev-space")}
       />
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
         <div className="min-h-0 overflow-hidden border-r border-border">

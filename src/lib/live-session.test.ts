@@ -20,6 +20,7 @@ const snapshot = (
   isAIProcessing: false,
   error: "",
   setupRequired: false,
+  isSttInitializing: false,
   partialTranscription: "",
   isStreaming: false,
   lastAIResponse: "",
@@ -60,5 +61,24 @@ describe("deriveBarNotice", () => {
       snapshot({ error: "No AI provider selected." })
     );
     expect(notice).toEqual({ kind: "error", message: "No AI provider selected." });
+  });
+
+  test("returns an init notice while STT models are initializing", () => {
+    const notice = deriveBarNotice(snapshot({ isSttInitializing: true }));
+    expect(notice?.kind).toBe("init");
+  });
+
+  test("setup takes precedence over STT initialization", () => {
+    const notice = deriveBarNotice(
+      snapshot({ setupRequired: true, isSttInitializing: true })
+    );
+    expect(notice?.kind).toBe("setup");
+  });
+
+  test("error takes precedence over STT initialization", () => {
+    const notice = deriveBarNotice(
+      snapshot({ error: "boom", isSttInitializing: true })
+    );
+    expect(notice?.kind).toBe("error");
   });
 });
