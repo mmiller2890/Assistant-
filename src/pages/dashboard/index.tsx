@@ -85,7 +85,7 @@ const Dashboard = () => {
         onTogglePopOut={togglePopOut}
       />
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
-        <div className="min-h-0 overflow-y-auto border-r border-border">
+        <div className="min-h-0 overflow-hidden border-r border-border">
           <TranscriptFeed
             conversation={displayed}
             live={isLive}
