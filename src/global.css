@@ -6,8 +6,11 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: "Geist Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Jost", "Geist Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-display: "Cinzel", ui-serif, Georgia, serif;
+  --color-brass-bright: var(--brass-bright);
+  --color-emerald: var(--emerald);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -48,83 +51,94 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
-/* Slate & signal — dark-only for now. Both :root and .dark carry the slate
-   values so every window renders slate regardless of theme class; a future
-   light variant restores a distinct :root. */
+/* Emerald & Brass — an Art Deco theme: deep green-ink ground, antique brass as
+   the primary metal, emerald as a structural jewel accent, warm ivory text.
+   Dark-only; both :root and .dark carry the same values so every window renders
+   the theme regardless of theme class. Square corners (--radius: 0). */
 :root {
-  --radius: 0.625rem;
+  --radius: 0;
   --cursor-type: default;
-  --background: #0e1116;
-  --foreground: #e7ecf2;
-  --card: #151a21;
-  --card-foreground: #e7ecf2;
-  --popover: #151a21;
-  --popover-foreground: #e7ecf2;
-  --primary: #4da3ff;
-  --primary-foreground: #0e1116;
-  --secondary: #1b222b;
-  --secondary-foreground: #e7ecf2;
-  --muted: #1b222b;
-  --muted-foreground: #93a2b2;
-  --accent: #1b222b;
-  --accent-foreground: #e7ecf2;
-  --destructive: #e5484d;
-  --border: #232b35;
-  --input: #2e3947;
-  --ring: #4da3ff;
-  --meta: #57646f;
-  --ok: #3fd99b;
+  --background: #0d1310;
+  --foreground: #f1e9d5;
+  --card: #121a15;
+  --card-foreground: #f1e9d5;
+  --popover: #141c17;
+  --popover-foreground: #f1e9d5;
+  --primary: #c69a43;
+  --primary-foreground: #0d1310;
+  --secondary: #17201a;
+  --secondary-foreground: #f1e9d5;
+  --muted: #17201a;
+  --muted-foreground: #a89f84;
+  --accent: #16241d;
+  --accent-foreground: #dfe7d8;
+  --destructive: #d9634c;
+  --border: #3c3520;
+  --input: #4a4227;
+  --ring: #c69a43;
+  --meta: #a68e4e;
+  --ok: #37b088;
   --warn: #e0b454;
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: #151a21;
-  --sidebar-foreground: #e7ecf2;
-  --sidebar-primary: #4da3ff;
-  --sidebar-primary-foreground: #0e1116;
-  --sidebar-accent: #1b222b;
-  --sidebar-accent-foreground: #e7ecf2;
-  --sidebar-border: #232b35;
-  --sidebar-ring: #4da3ff;
+  --brass-bright: #e7c67e;
+  --brass-dim: #8c7333;
+  --emerald: #1f7a5e;
+  --emerald-bright: #37b088;
+  --emerald-deep: #0f3d30;
+  --chart-1: #c69a43;
+  --chart-2: #1f7a5e;
+  --chart-3: #e7c67e;
+  --chart-4: #a68e4e;
+  --chart-5: #d8cfb6;
+  --sidebar: #0a0f0c;
+  --sidebar-foreground: #f1e9d5;
+  --sidebar-primary: #c69a43;
+  --sidebar-primary-foreground: #0d1310;
+  --sidebar-accent: #17201a;
+  --sidebar-accent-foreground: #f1e9d5;
+  --sidebar-border: #3c3520;
+  --sidebar-ring: #c69a43;
 }
 
 .dark {
-  --background: #0e1116;
-  --foreground: #e7ecf2;
-  --card: #151a21;
-  --card-foreground: #e7ecf2;
-  --popover: #151a21;
-  --popover-foreground: #e7ecf2;
-  --primary: #4da3ff;
-  --primary-foreground: #0e1116;
-  --secondary: #1b222b;
-  --secondary-foreground: #e7ecf2;
-  --muted: #1b222b;
-  --muted-foreground: #93a2b2;
-  --accent: #1b222b;
-  --accent-foreground: #e7ecf2;
-  --destructive: #e5484d;
-  --border: #232b35;
-  --input: #2e3947;
-  --ring: #4da3ff;
-  --meta: #57646f;
-  --ok: #3fd99b;
+  --background: #0d1310;
+  --foreground: #f1e9d5;
+  --card: #121a15;
+  --card-foreground: #f1e9d5;
+  --popover: #141c17;
+  --popover-foreground: #f1e9d5;
+  --primary: #c69a43;
+  --primary-foreground: #0d1310;
+  --secondary: #17201a;
+  --secondary-foreground: #f1e9d5;
+  --muted: #17201a;
+  --muted-foreground: #a89f84;
+  --accent: #16241d;
+  --accent-foreground: #dfe7d8;
+  --destructive: #d9634c;
+  --border: #3c3520;
+  --input: #4a4227;
+  --ring: #c69a43;
+  --meta: #a68e4e;
+  --ok: #37b088;
   --warn: #e0b454;
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: #151a21;
-  --sidebar-foreground: #e7ecf2;
-  --sidebar-primary: #4da3ff;
-  --sidebar-primary-foreground: #0e1116;
-  --sidebar-accent: #1b222b;
-  --sidebar-accent-foreground: #e7ecf2;
-  --sidebar-border: #232b35;
-  --sidebar-ring: #4da3ff;
+  --brass-bright: #e7c67e;
+  --brass-dim: #8c7333;
+  --emerald: #1f7a5e;
+  --emerald-bright: #37b088;
+  --emerald-deep: #0f3d30;
+  --chart-1: #c69a43;
+  --chart-2: #1f7a5e;
+  --chart-3: #e7c67e;
+  --chart-4: #a68e4e;
+  --chart-5: #d8cfb6;
+  --sidebar: #0a0f0c;
+  --sidebar-foreground: #f1e9d5;
+  --sidebar-primary: #c69a43;
+  --sidebar-primary-foreground: #0d1310;
+  --sidebar-accent: #17201a;
+  --sidebar-accent-foreground: #f1e9d5;
+  --sidebar-border: #3c3520;
+  --sidebar-ring: #c69a43;
 }
 
 @layer base {

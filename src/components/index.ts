@@ -1,5 +1,6 @@
 export * from "./updater";
 export * from "./ui";
+export * from "./deco";
 export * from "./SttInitOverlay";
 export * from "./Markdown";
 export * from "./Header";
