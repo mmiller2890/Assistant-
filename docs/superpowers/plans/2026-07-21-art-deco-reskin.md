@@ -887,7 +887,41 @@ function DialogTitle({
 }
 ```
 
-- [ ] **Step 3: Verify typecheck + build**
+- [ ] **Step 3: Add a DiamondDivider under the DialogHeader**
+
+Add a new import at the top of the file. Replace line 2:
+
+```tsx
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+```
+
+with:
+
+```tsx
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { DiamondDivider } from "@/components/deco";
+```
+
+Then replace the `DialogHeader` function (lines 81-89) with:
+
+```tsx
+function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-header"
+      className={cn("flex flex-col gap-3 text-center sm:text-left", className)}
+      {...props}
+    >
+      {props.children}
+      <DiamondDivider />
+    </div>
+  );
+}
+```
+
+This inserts a gold diamond divider between the header (title + description) and the body content.
+
+- [ ] **Step 4: Verify typecheck + build**
 
 Run:
 ```bash
@@ -895,11 +929,11 @@ npx tsc --noEmit && npm run build
 ```
 Expected: both succeed.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/components/ui/dialog.tsx
-git commit -m "feat(deco): restyle Dialog with gold border + L-corners + Poiret title"
+git commit -m "feat(deco): restyle Dialog with gold border + L-corners + Poiret title + diamond divider"
 ```
 
 ---
