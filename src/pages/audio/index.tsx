@@ -50,7 +50,7 @@ const Audio = () => {
         </p>
         <p className="text-warn/80">
           <strong>Note:</strong> If the selected device fails or is unavailable,
-          Assistant will automatically fall back to your system's default audio
+          Aileron will automatically fall back to your system's default audio
           devices.
         </p>
       </div>

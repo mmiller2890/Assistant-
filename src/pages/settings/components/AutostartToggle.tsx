@@ -18,7 +18,7 @@ export const AutostartToggle = ({ className }: AutostartToggleProps) => {
     <div id="autostart" className={`space-y-2 ${className}`}>
       <Header
         title="Launch on Startup"
-        description="Automatically open Assistant when your system starts"
+        description="Automatically open Aileron when your system starts"
         isMainTitle
       />
       <div className="flex items-center justify-between">
@@ -27,8 +27,8 @@ export const AutostartToggle = ({ className }: AutostartToggleProps) => {
             <Label className="text-sm font-medium">Open on Start</Label>
             <p className="text-xs text-muted-foreground mt-1">
               {isEnabled
-                ? "Assistant will launch automatically on system startup"
-                : "Assistant will not launch automatically"}
+                ? "Aileron will launch automatically on system startup"
+                : "Aileron will not launch automatically"}
             </p>
           </div>
         </div>

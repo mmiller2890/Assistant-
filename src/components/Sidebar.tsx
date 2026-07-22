@@ -1,4 +1,4 @@
-import { Button, AssistantMark, ChevronRule } from "@/components";
+import { Button, AileronMark, ChevronRule } from "@/components";
 import { cn } from "@/lib/utils";
 import { useLocation, useNavigate } from "react-router-dom";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -27,7 +27,7 @@ export const Sidebar = () => {
         onClick={() => navigate("/dashboard")}
         className="flex cursor-pointer flex-col items-center gap-2.5 px-4 pb-2 pt-9"
       >
-        <AssistantMark size={40} />
+        <AileronMark size={40} />
         <div className="flex flex-col items-center">
           <h1
             className="text-sm uppercase tracking-[0.32em] text-foreground lg:text-base"
@@ -37,7 +37,7 @@ export const Sidebar = () => {
               textIndent: "0.32em",
             }}
           >
-            Assistant
+            Aileron
           </h1>
           <span className="mt-0.5 block font-mono text-[9px] tracking-[0.18em] text-meta">
             {isLoading ? "loading" : `v${version}`}

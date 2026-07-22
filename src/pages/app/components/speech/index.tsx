@@ -389,7 +389,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
                         {noAudioDetected && (
                           <p className="text-[10px] text-amber-600 dark:text-amber-500 leading-snug">
                             No system audio detected. Make sure something is
-                            playing, and that Assistant has permission in{" "}
+                            playing, and that Aileron has permission in{" "}
                             <span className="font-medium">
                               System Settings → Privacy &amp; Security → Screen
                               &amp; System Audio Recording

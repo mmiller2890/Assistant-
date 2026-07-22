@@ -1,2 +1,2 @@
-export * from "./AssistantMark";
+export * from "./AileronMark";
 export * from "./ChevronRule";

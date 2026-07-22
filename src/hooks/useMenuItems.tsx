@@ -76,7 +76,7 @@ export const useMenuItems = () => {
     },
     {
       icon: PowerIcon,
-      label: "Quit Assistant",
+      label: "Quit Aileron",
       action: async () => {
         await invoke("exit_app");
       },

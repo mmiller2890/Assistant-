@@ -105,7 +105,7 @@ export const PermissionFlow = ({
     requesting: {
       icon: <LoaderIcon className="w-5 h-5 animate-spin" />,
       title: "Waiting for Permission",
-      description: `Enable Assistant in System Settings (${checkAttempts}/20)`,
+      description: `Enable Aileron in System Settings (${checkAttempts}/20)`,
       bgColor: "bg-warn/10",
       borderColor: "border-warn/30",
       textColor: "text-muted-foreground",
@@ -165,7 +165,7 @@ export const PermissionFlow = ({
                   <li>Open System Settings</li>
                   <li>Go to Privacy & Security</li>
                   <li>Select Screen & System Audio Recording</li>
-                  <li>Enable Assistant</li>
+                  <li>Enable Aileron</li>
                 </ol>
               )}
             </div>

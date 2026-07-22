@@ -1,4 +1,4 @@
-interface AssistantMarkProps {
+interface AileronMarkProps {
   size?: number;
   className?: string;
 }
@@ -8,7 +8,7 @@ interface AssistantMarkProps {
  * chevron in brass with an emerald inner face and a stepped (setback) base,
  * evoking a Deco skyscraper crown. Pure SVG, colors from theme tokens.
  */
-export function AssistantMark({ size = 40, className }: AssistantMarkProps) {
+export function AileronMark({ size = 40, className }: AileronMarkProps) {
   return (
     <svg
       width={size}
@@ -18,7 +18,7 @@ export function AssistantMark({ size = 40, className }: AssistantMarkProps) {
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       role="img"
-      aria-label="Assistant"
+      aria-label="Aileron"
     >
       <path d="M60 12 L98 100 L79 100 L60 56 L41 100 L22 100 Z" fill="var(--primary)" />
       <path d="M60 40 L81 96 L69 96 L60 72 L51 96 L39 96 Z" fill="var(--emerald)" />
