@@ -18,7 +18,7 @@ export const Sidebar = ({ onCollapse }: { onCollapse?: () => void }) => {
           onClick={onCollapse}
           title="Collapse sidebar"
           aria-label="Collapse sidebar"
-          className="absolute right-1.5 top-1.5 z-10 flex size-6 items-center justify-center text-muted-foreground transition-colors hover:text-primary"
+          className="absolute right-1.5 top-11 z-30 flex size-6 items-center justify-center text-muted-foreground transition-colors hover:text-primary"
         >
           <PanelLeftCloseIcon className="size-4" />
         </button>
