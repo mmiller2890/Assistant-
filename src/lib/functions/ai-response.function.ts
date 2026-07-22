@@ -88,8 +88,16 @@ export async function* fetchAIResponse(params: {
     }
 
     const extractedVariables = extractVariables(provider.curl);
+    // Local providers (Ollama, LM Studio) hit localhost and ignore the
+    // Authorization header, so API_KEY is optional for them even though their
+    // template carries {{API_KEY}}.
+    const apiKeyOptional = ["ollama", "lm-studio"].includes(provider.id ?? "");
     const requiredVars = extractedVariables.filter(
-      ({ key }) => key !== "SYSTEM_PROMPT" && key !== "TEXT" && key !== "IMAGE"
+      ({ key }) =>
+        key !== "SYSTEM_PROMPT" &&
+        key !== "TEXT" &&
+        key !== "IMAGE" &&
+        !(apiKeyOptional && key === "API_KEY")
     );
     for (const { key } of requiredVars) {
       if (
@@ -129,6 +137,7 @@ export async function* fetchAIResponse(params: {
     }
 
     const allVariables = {
+      API_KEY: "",
       ...Object.fromEntries(
         Object.entries(selectedProvider.variables).map(([key, value]) => [
           key.toUpperCase(),
