@@ -57,7 +57,7 @@ export const useMenuItems = () => {
     },
     {
       icon: SquareSlashIcon,
-      label: "Cursor & Shortcuts",
+      label: "Shortcuts",
       href: "/shortcuts",
     },
 

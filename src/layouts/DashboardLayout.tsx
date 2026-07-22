@@ -1,9 +1,12 @@
+import { useState } from "react";
 import { Sidebar } from "@/components";
 import { Outlet } from "react-router-dom";
 import { ErrorBoundary } from "react-error-boundary";
 import { ErrorLayout } from "./ErrorLayout";
+import { PanelLeftOpenIcon } from "lucide-react";
 
 export const DashboardLayout = () => {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   return (
     <ErrorBoundary
       fallbackRender={() => {
@@ -19,8 +22,19 @@ export const DashboardLayout = () => {
           data-tauri-drag-region={true}
         />
 
-        {/* Sidebar */}
-        <Sidebar />
+        {/* Sidebar (collapsible) */}
+        {sidebarCollapsed ? (
+          <button
+            onClick={() => setSidebarCollapsed(false)}
+            title="Show sidebar"
+            aria-label="Show sidebar"
+            className="absolute left-0 top-12 z-40 flex h-9 w-6 items-center justify-center border-y border-r border-sidebar-border bg-sidebar text-muted-foreground transition-colors hover:text-primary"
+          >
+            <PanelLeftOpenIcon className="size-4" />
+          </button>
+        ) : (
+          <Sidebar onCollapse={() => setSidebarCollapsed(true)} />
+        )}
         {/* Main Content */}
         <main className="flex flex-1 flex-col overflow-hidden px-8">
           <Outlet />

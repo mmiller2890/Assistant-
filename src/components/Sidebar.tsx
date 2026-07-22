@@ -3,8 +3,9 @@ import { cn } from "@/lib/utils";
 import { useLocation, useNavigate } from "react-router-dom";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useMenuItems, useVersion } from "@/hooks";
+import { PanelLeftCloseIcon } from "lucide-react";
 
-export const Sidebar = () => {
+export const Sidebar = ({ onCollapse }: { onCollapse?: () => void }) => {
   const { version, isLoading } = useVersion();
   const { menu, footerLinks, footerItems } = useMenuItems();
 
@@ -12,6 +13,16 @@ export const Sidebar = () => {
   const activeRoute = useLocation().pathname;
   return (
     <aside className="relative flex w-56 flex-col select-none pt-2 bg-sidebar border-r border-sidebar-border">
+      {onCollapse && (
+        <button
+          onClick={onCollapse}
+          title="Collapse sidebar"
+          aria-label="Collapse sidebar"
+          className="absolute right-1.5 top-1.5 z-10 flex size-6 items-center justify-center text-muted-foreground transition-colors hover:text-primary"
+        >
+          <PanelLeftCloseIcon className="size-4" />
+        </button>
+      )}
       {/* emerald reeded spine on the inner edge */}
       <span
         aria-hidden

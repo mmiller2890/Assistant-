@@ -13,11 +13,13 @@ import { SessionMetrics } from "./components/SessionMetrics";
 import { RecentSessions } from "./components/RecentSessions";
 import { SessionSummaryCard } from "./components/SessionSummaryCard";
 import { ProviderStatus } from "./components/ProviderStatus";
+import { PanelRightCloseIcon, PanelRightOpenIcon } from "lucide-react";
 
 const Dashboard = () => {
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const { snapshot, sendCommand } = useLiveSession();
   const navigate = useNavigate();
+  const [railCollapsed, setRailCollapsed] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -87,26 +89,52 @@ const Dashboard = () => {
         onTogglePopOut={togglePopOut}
         onOpenProviders={() => navigate("/dev-space")}
       />
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
-        <div className="min-h-0 overflow-hidden border-r border-border">
+      <div
+        className={`grid min-h-0 flex-1 ${
+          railCollapsed
+            ? "grid-cols-1"
+            : "grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]"
+        }`}
+      >
+        <div
+          className={`relative min-h-0 overflow-hidden ${
+            railCollapsed ? "" : "border-r border-border"
+          }`}
+        >
           <TranscriptFeed
             conversation={displayed}
             live={isLive}
             partialTranscription={snapshot?.partialTranscription ?? ""}
             isAIProcessing={snapshot?.isAIProcessing ?? false}
           />
+          <button
+            onClick={() => setRailCollapsed((v) => !v)}
+            title={railCollapsed ? "Show sessions" : "Hide sessions"}
+            aria-label={railCollapsed ? "Show sessions panel" : "Hide sessions panel"}
+            className="absolute right-2 top-2 z-10 flex size-7 items-center justify-center border border-border bg-secondary text-muted-foreground transition-colors hover:text-primary"
+          >
+            {railCollapsed ? (
+              <PanelRightOpenIcon className="size-4" />
+            ) : (
+              <PanelRightCloseIcon className="size-4" />
+            )}
+          </button>
         </div>
-        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-4">
-          <SessionMetrics
-            conversation={displayed}
-            liveStartedAt={snapshot?.capturing ? snapshot.sessionStartedAt : null}
-          />
-          {snapshot && (
-            <SessionSummaryCard snapshot={snapshot} sendCommand={sendCommand} />
-          )}
-          <RecentSessions conversations={conversations} />
-          <ProviderStatus />
-        </div>
+        {!railCollapsed && (
+          <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-4">
+            <SessionMetrics
+              conversation={displayed}
+              liveStartedAt={
+                snapshot?.capturing ? snapshot.sessionStartedAt : null
+              }
+            />
+            {snapshot && (
+              <SessionSummaryCard snapshot={snapshot} sendCommand={sendCommand} />
+            )}
+            <RecentSessions conversations={conversations} />
+            <ProviderStatus />
+          </div>
+        )}
       </div>
     </div>
   );
