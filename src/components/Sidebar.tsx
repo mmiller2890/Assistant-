@@ -38,7 +38,7 @@ export const Sidebar = ({ onCollapse }: { onCollapse?: () => void }) => {
         onClick={() => navigate("/dashboard")}
         className="flex cursor-pointer flex-col items-center gap-2.5 px-4 pb-2 pt-9"
       >
-        <AileronMark size={40} />
+        <AileronMark size={48} />
         <div className="flex flex-col items-center">
           <h1
             className="text-sm uppercase tracking-[0.32em] text-foreground lg:text-base"
