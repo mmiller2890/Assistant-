@@ -1,0 +1,19 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#17241d"/>
+      <stop offset="1" stop-color="#0a0f0c"/>
+    </linearGradient>
+  </defs>
+  <!-- deep ink-green squircle tile (macOS rounded icon; corners transparent) -->
+  <rect x="92" y="92" width="840" height="840" rx="188" fill="url(#tile)"/>
+  <!-- brass Deco inner frame -->
+  <rect x="150" y="150" width="724" height="724" rx="150" fill="none" stroke="#c69a43" stroke-width="7" opacity="0.55"/>
+  <!-- Aileron mark: brass fin + emerald inner + stepped plinth -->
+  <g transform="translate(512 512) scale(4.6) translate(-60 -62)">
+    <path d="M60 12 L98 100 L79 100 L60 56 L41 100 L22 100 Z" fill="#c69a43"/>
+    <path d="M60 40 L81 96 L69 96 L60 72 L51 96 L39 96 Z" fill="#1f7a5e"/>
+    <rect x="28" y="102" width="64" height="4" fill="#c69a43"/>
+    <rect x="37" y="110" width="46" height="3" fill="#8c7333"/>
+  </g>
+</svg>
