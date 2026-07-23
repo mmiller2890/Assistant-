@@ -274,7 +274,7 @@ export const ShortcutManager = () => {
                     </code>
                     <Button
                       size="sm"
-                      variant={isLocked ? "outline" : "default"}
+                      variant="outline"
                       onClick={() => {
                         if (isLocked) return;
                         setEditingAction(action.id);

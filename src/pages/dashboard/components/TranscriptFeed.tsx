@@ -73,7 +73,7 @@ export const TranscriptFeed = ({
                 {formatClock(m.timestamp)}
               </span>
               {m.role === "assistant" ? (
-                <div className="min-w-0 flex-1 border-l-2 border-primary pl-3">
+                <div className="min-w-0 flex-1 border-l-[3px] border-[var(--emerald)] pl-3">
                   <div className="mb-1 font-mono text-[11px] text-primary">
                     answer
                   </div>

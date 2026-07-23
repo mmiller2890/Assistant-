@@ -67,7 +67,7 @@ export const Sidebar = ({ onCollapse }: { onCollapse?: () => void }) => {
             className={cn(
               "flex w-full items-center justify-between gap-3 border-l-2 border-transparent px-3 py-2 text-[12px] uppercase tracking-[0.16em] text-muted-foreground transition-colors hover:text-foreground",
               activeRoute.includes(item.href)
-                ? "border-primary bg-sidebar-accent text-primary hover:text-primary"
+                ? "border-[var(--emerald)] bg-sidebar-accent text-primary hover:text-primary"
                 : ""
             )}
           >
