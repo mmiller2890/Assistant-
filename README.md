@@ -1,12 +1,12 @@
 <div align="center">
 
-# 🎙️ Assistant
+# 🎙️ Aileron
 
 **A private, on-device AI copilot for your meetings, interviews, and calls.**
 
 It listens to a conversation, transcribes it locally, and quietly answers questions the moment they're asked — all from a translucent overlay that stays out of the way and off your screen shares.
 
-<img src="images/app-hero.svg" alt="Assistant — the session dashboard with live transcript and answers, and the screen-share-invisible pop-out bar above it" width="820" />
+<img src="images/app-hero.svg" alt="Aileron — the session dashboard with live transcript and answers, and the screen-share-invisible pop-out bar above it" width="820" />
 
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-blue)
 ![Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB)
@@ -17,7 +17,7 @@ It listens to a conversation, transcribes it locally, and quietly answers questi
 
 ---
 
-Assistant is a **local-only fork** of the excellent open-source [Pluely](https://github.com/iamsrikanthnani/pluely) project, stripped down for privacy: the hosted cloud API, license activation, auto-updater, and every trace of telemetry are gone. Nothing phones home. It talks **directly** to whatever AI and speech providers *you* configure — a local Ollama model, a cloud API you already pay for, or anything you can describe with a `curl` command.
+Aileron is a **local-only fork** of the excellent open-source [Pluely](https://github.com/iamsrikanthnani/pluely) project, stripped down for privacy: the hosted cloud API, license activation, auto-updater, and every trace of telemetry are gone. Nothing phones home. It talks **directly** to whatever AI and speech providers *you* configure — a local Ollama model, a cloud API you already pay for, or anything you can describe with a `curl` command.
 
 ## 💡 What it's for
 
@@ -45,7 +45,7 @@ Because the overlay is **invisible to screen recording and screen sharing**, it 
 
 ## 🚀 Quick Start
 
-> **No prebuilt download yet** — Assistant is built from source (a signed, drag-to-Applications installer is [on the roadmap](docs/shipping-plan.md)). You'll need a dev toolchain, but you don't have to hunt for it: `npm run setup` checks everything and tells you exactly what's missing.
+> **No prebuilt download yet** — Aileron is built from source (a signed, drag-to-Applications installer is [on the roadmap](docs/shipping-plan.md)). You'll need a dev toolchain, but you don't have to hunt for it: `npm run setup` checks everything and tells you exactly what's missing.
 
 **Prerequisites**
 
@@ -71,7 +71,7 @@ npm run tauri build    # produce a native app
 
 ## 🧠 Connect an AI
 
-Assistant doesn't lock you into a vendor. Pick whichever path fits.
+Aileron doesn't lock you into a vendor. Pick whichever path fits.
 
 ### The easy path — Ollama (100% local, free)
 
@@ -86,11 +86,11 @@ The app auto-detects your installed Ollama models. Just choose one under **Dashb
 
 Built-in templates ship for **OpenAI, Claude, Gemini, Grok, Groq, Mistral, Cohere, Perplexity, OpenRouter, and LM Studio**. Select the provider, paste your API key, set the model name, and you're live.
 
-> 💡 **LM Studio:** start its local server on port `1234`, pick the `lm-studio` provider, set `MODEL` to the loaded model's id, and use any non-empty string for `API_KEY`.
+> 💡 **LM Studio:** start its local server on port `1234`, pick the `lm-studio` provider, set `MODEL` to the loaded model's id — `API_KEY` can be left blank (local providers no longer require one).
 
 ### The power path — *any* AI via `curl`
 
-If a service speaks HTTP, Assistant can use it. Add a custom provider under **Dev Space → AI Providers** by pasting a `curl` command with a few placeholders the app fills in per request:
+If a service speaks HTTP, Aileron can use it. Add a custom provider under **Dev Space → AI Providers** by pasting a `curl` command with a few placeholders the app fills in per request:
 
 | Placeholder | Replaced with |
 |---|---|
